@@ -1,0 +1,39 @@
+@{ ViewData["Title"] = "Lotes e ingresos"; }
+<div class="page-h"><div><h2>Lotes e ingresos de inventario</h2><p>Registro de nuevos lotes y control de vencimientos</p></div></div>
+<div class="grid g-5-7">
+  <div class="card c-green">
+    <h3 data-i="plus"> Ingresar lote</h3>
+    <form id="f" novalidate>
+      <div class="field"><label for="med">Medicamento *</label><select id="med"></select><span class="fe"></span></div>
+      <div class="field"><label for="prov">Proveedor *</label><select id="prov"></select><span class="fe"></span></div>
+      <div class="field"><label for="num">Número de lote *</label><input id="num" /><span class="fe"></span></div>
+      <div class="row2"><div class="field"><label for="exp">Fecha de vencimiento *</label><input id="exp" type="date" /><span class="fe"></span></div>
+      <div class="field"><label for="q">Cantidad inicial *</label><input id="q" type="number" step="1" /><span class="fe"></span></div></div>
+      <div id="warn"></div>
+      <button class="btn btn-green btn-block" data-i="check"> Registrar ingreso</button>
+    </form>
+  </div>
+  <div><div class="tw"><table><thead><tr><th>Medicamento</th><th>Lote</th><th>Vence</th><th class="num">Actual / Inicial</th><th>Estado</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+</div>
+@section Scripts {
+<script>
+PS.boot(S => {
+  const $ = id => document.getElementById(id), esc = PS.esc;
+  $('med').innerHTML = '<option value="">— Seleccione —</option>' + S.meds.filter(m => m.on).map(m => `<option value="${m.id}">${esc(m.n)}</option>`).join('');
+  $('prov').innerHTML = '<option value="">— Seleccione —</option>' + S.provs.map(p => `<option value="${p.id}">${esc(p.n)}</option>`).join('');
+  $('exp').min = PS.iso(new Date());
+  const draw = () => $('rows').innerHTML = [...S.lots].sort((a, b) => a.exp.localeCompare(b.exp)).map(l => `<tr class="${l.cur > 0 && l.st.k === 'exp' ? 'r-crit' : l.cur > 0 && l.st.k === 'soon' ? 'r-warn' : ''}"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}</td><td>${l.exp}<br><small class="muted">${PS.daysTxt(l.st.d)}</small></td><td class="num">${l.cur} / ${l.ini}</td><td>${PS.lotBadge(l)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-row">Sin lotes</td></tr>';
+  draw();
+  const bad = (id, msg) => { const i = $(id); i.classList.toggle('bad', !!msg); i.parentElement.querySelector('.fe').textContent = msg || ''; return !!msg; };
+  $('exp').onchange = () => { const d = PS.daysTo($('exp').value || '9999-12-31'); $('warn').innerHTML = d < 0 ? PS.banner('red', 'x', 'Fecha vencida', 'No se permiten ingresos con fecha pasada.') : d <= 30 ? PS.banner('amber', 'clock', 'Vence pronto', `Este lote vencería en ${d} día(s).`) : ''; };
+  $('f').onsubmit = async e => {
+    e.preventDefault(); const q = parseInt($('q').value, 10), exp = $('exp').value;
+    const errs = [bad('med', $('med').value ? '' : 'Seleccione'), bad('prov', $('prov').value ? '' : 'Seleccione'), bad('num', $('num').value.trim() ? '' : 'Obligatorio'),
+      bad('exp', !exp ? 'Obligatoria' : PS.daysTo(exp) < 0 ? 'No puede ser una fecha pasada' : ''), bad('q', !(q > 0) ? 'Debe ser mayor que 0' : '')];
+    if (errs.some(Boolean)) return PS.toast('warning', 'Revise los campos marcados');
+    const r = await PS.api('/api/lots', { med: +$('med').value, prov: +$('prov').value, num: $('num').value.trim(), exp, q });
+    if (r.ok) { PS.toast('success', 'Lote registrado y stock actualizado'); $('f').reset(); $('warn').innerHTML = ''; await PS.reload(); draw(); } else PS.alertBox('No se pudo registrar', r.data.error);
+  };
+});
+</script>
+}

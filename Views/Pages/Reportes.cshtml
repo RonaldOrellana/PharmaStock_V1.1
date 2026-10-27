@@ -1,0 +1,87 @@
+@{ ViewData["Title"] = "Reportes"; }
+<div class="page-h"><div><h2>Módulo de reportes</h2><p>Exporte cualquier pestaña a PDF (Imprimir → Guardar como PDF). Críticos en rojo, por vencer en naranja.</p></div></div>
+<div class="tabs no-print" id="tabs">
+  <button data-t="stock" class="active" data-i="alert"> Stock bajo</button><button data-t="venc" data-i="clock"> Vencimientos</button>
+  <button data-t="ventas" data-i="cart"> Ventas del periodo</button><button data-t="semanal" data-i="chart"> Reporte semanal consolidado</button>
+</div>
+
+<section class="pane active" id="p-stock">
+  <div class="flex mb"><h3 class="sp" style="color:var(--navy)">Stock bajo y reabastecimiento</h3><button class="btn btn-out no-print" data-pdf="stock"><span style="color:var(--red)" data-i="pdf"></span> Exportar PDF</button></div>
+  <div class="tw"><table><thead><tr><th>Medicamento</th><th>Categoría</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Sugerido pedir</th><th>Estado</th></tr></thead><tbody id="rStock"></tbody></table></div>
+</section>
+
+<section class="pane" id="p-venc">
+  <div class="flex mb"><h3 class="sp" style="color:var(--navy)">Lotes próximos a vencer y vencidos</h3><button class="btn btn-out no-print" data-pdf="venc"><span style="color:var(--red)" data-i="pdf"></span> Exportar PDF</button></div>
+  <div class="tw"><table><thead><tr><th>Medicamento</th><th>Lote</th><th>Vence</th><th class="num">Cant.</th><th>Estado</th><th>Restan</th></tr></thead><tbody id="rVenc"></tbody></table></div>
+</section>
+
+<section class="pane" id="p-ventas">
+  <div class="flex mb"><h3 style="color:var(--navy)">Ventas del periodo</h3><span class="sp"></span>
+    <div class="no-print flex"><input type="date" id="vf" style="width:auto"><input type="date" id="vt" style="width:auto"><button class="btn btn-out" data-pdf="ventas"><span style="color:var(--red)" data-i="pdf"></span> Exportar PDF</button></div></div>
+  <div class="tw"><table><thead><tr><th>Factura</th><th>Fecha</th><th>Cliente</th><th>Atendió</th><th class="num">Subtotal</th><th class="num">IVA</th><th class="num">Total</th></tr></thead><tbody id="rVentas"></tbody></table></div>
+</section>
+
+<section class="pane" id="p-semanal">
+  <div class="flex mb no-print">
+    <h3 class="sp" style="color:var(--navy)">Reporte semanal consolidado</h3>
+    <select id="wm" style="width:auto"><option value="week">Lunes a domingo</option><option value="last7">Últimos 7 días</option></select>
+    <input type="date" id="wd" style="width:auto" title="Fecha de referencia">
+    <button class="btn btn-green btn-lg" id="wpdf"><span style="color:#fecaca;background:#b91c1c;border-radius:4px;padding:0 3px" data-i="pdf"></span> Descargar Reporte Semanal en PDF</button>
+  </div>
+  <p class="muted" id="wRange"></p>
+  <div class="grid g4 mb" id="wKpi"></div>
+  <div class="grid g2 mb">
+    <div class="card c-green"><h3>Top 5 medicamentos más vendidos</h3><div id="wTop"></div></div>
+    <div class="card c-blue"><h3>Ventas por día</h3><div class="chart-box" style="height:230px"><canvas id="wChart"></canvas></div></div>
+  </div>
+  <div class="grid g2">
+    <div><h3 style="color:var(--navy);margin-bottom:.5rem">Mermas y ajustes de la semana</h3><div class="tw"><table><thead><tr><th>Fecha</th><th>Detalle</th><th class="num">Cant.</th></tr></thead><tbody id="wAdj"></tbody></table></div></div>
+    <div><h3 style="color:var(--navy);margin-bottom:.5rem">Proyección: vencen la semana siguiente</h3><div class="tw"><table><thead><tr><th>Medicamento</th><th>Lote</th><th>Vence</th><th class="num">Cant.</th></tr></thead><tbody id="wNext"></tbody></table></div></div>
+  </div>
+</section>
+
+@section Scripts {
+<script>
+PS.boot(S => {
+  const $ = id => document.getElementById(id), esc = PS.esc, empty = n => `<tr><td colspan="${n}" class="empty-row">Sin datos para mostrar</td></tr>`;
+  document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { document.querySelectorAll('#tabs button,.pane').forEach(e => e.classList.remove('active')); b.classList.add('active'); $('p-' + b.dataset.t).classList.add('active'); });
+  document.querySelectorAll('[data-pdf]').forEach(b => b.onclick = () => doPdf(b.dataset.pdf));
+  const doPdf = k => { const p = $('p-' + k); p.classList.add('printing'); window.print(); setTimeout(() => p.classList.remove('printing'), 500); };
+  $('wpdf').onclick = () => doPdf('semanal');
+
+  // 1. Stock bajo
+  $('rStock').innerHTML = S.low.map(m => `<tr class="${m.stock <= 0 ? 'r-crit' : 'r-warn'}"><td><b>${esc(m.n)}</b></td><td>${esc(m.cat)}</td><td class="num">${m.stock}</td><td class="num">${m.min}</td><td class="num"><b>${Math.max(m.min * 2 - m.stock, 1)}</b></td><td>${PS.stockBadge(m)}</td></tr>`).join('') || empty(6);
+  // 2. Vencimientos
+  const vl = S.lots.filter(l => l.cur > 0 && l.st.k !== 'ok').sort((a, b) => a.st.d - b.st.d);
+  $('rVenc').innerHTML = vl.map(l => `<tr class="${l.st.k === 'exp' ? 'r-crit' : 'r-warn'}"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}</td><td>${l.exp}</td><td class="num">${l.cur}</td><td>${PS.lotBadge(l)}</td><td>${PS.daysTxt(l.st.d)}</td></tr>`).join('') || empty(6);
+  // 3. Ventas del periodo
+  const d7 = new Date(); d7.setDate(d7.getDate() - 6); $('vf').value = PS.iso(d7); $('vt').value = PS.iso(new Date());
+  const inRange = (d, a, b) => PS.iso(d) >= a && PS.iso(d) <= b;
+  const drawV = () => { const list = S.sales.filter(v => inRange(v.date, $('vf').value, $('vt').value)), tot = list.reduce((s, v) => s + v.total, 0);
+    $('rVentas').innerHTML = list.map(v => `<tr><td>${esc(v.num)}</td><td>${v.date.toLocaleString('es-SV')}</td><td>${esc(v.cli)}</td><td>${esc(v.user)}</td><td class="num">${PS.money(v.sub)}</td><td class="num">${PS.money(v.iva)}</td><td class="num"><b>${PS.money(v.total)}</b></td></tr>`).join('') + (list.length ? `<tr><td colspan="6" class="right"><b>Total del periodo</b></td><td class="num"><b>${PS.money(tot)}</b></td></tr>` : empty(7)); };
+  $('vf').onchange = $('vt').onchange = drawV; drawV();
+  // 4. Semanal
+  $('wd').value = PS.iso(new Date()); let chart;
+  const drawW = () => {
+    const ref = new Date($('wd').value + 'T00:00:00'); let a = new Date(ref), b = new Date(ref);
+    if ($('wm').value === 'week') { const dow = (ref.getDay() + 6) % 7; a.setDate(ref.getDate() - dow); b = new Date(a); b.setDate(a.getDate() + 6); } else a.setDate(ref.getDate() - 6);
+    const A = PS.iso(a), B = PS.iso(b); $('wRange').textContent = `Periodo: ${PS.fmtDate(A)} — ${PS.fmtDate(B)}`;
+    const sales = S.sales.filter(v => inRange(v.date, A, B)), total = sales.reduce((s, v) => s + v.total, 0);
+    const prod = {}; sales.forEach(v => v.items.forEach(i => { const p = prod[i.n] = prod[i.n] || { q: 0, m: 0 }; p.q += i.q; p.m += i.q * i.p; }));
+    const top = Object.entries(prod).sort((x, y) => y[1].q - x[1].q).slice(0, 5), max = top[0] ? top[0][1].q : 1;
+    const adj = S.movs.filter(m => m.t === 'AJUSTE' && inRange(m.date, A, B)), lost = adj.filter(m => m.q < 0).reduce((s, m) => s - m.q, 0);
+    const n1 = new Date(b); n1.setDate(b.getDate() + 1); const n7 = new Date(b); n7.setDate(b.getDate() + 7);
+    const next = S.lots.filter(l => l.cur > 0 && l.exp >= PS.iso(n1) && l.exp <= PS.iso(n7)).sort((x, y) => x.exp.localeCompare(y.exp));
+    const k = (c, bg, i, v, l) => `<div class="card ${c}"><div class="kpi"><div class="ico" style="background:${bg}">${PS.ico(i)}</div><div><div class="v">${v}</div><div class="l">${l}</div></div></div></div>`;
+    $('wKpi').innerHTML = k('c-green', 'var(--green)', 'cart', PS.money(total), 'Total ventas semanales') + k('c-blue', 'var(--blue)', 'print', sales.length, 'Facturas emitidas') + k(lost ? 'c-red' : 'c-green', lost ? 'var(--red)' : 'var(--ok)', 'swap', lost, 'Unidades en mermas/bajas') + k(next.length ? 'c-amber' : 'c-green', next.length ? 'var(--amber)' : 'var(--ok)', 'clock', next.length, 'Lotes vencen próxima semana');
+    $('wTop').innerHTML = top.map(([n, p], i) => `<div style="margin-bottom:.7rem"><div class="flex"><b class="sp">${i + 1}. ${esc(n)}</b><span>${p.q} u. · ${PS.money(p.m)}</span></div><div class="bar"><i style="width:${p.q / max * 100}%"></i></div></div>`).join('') || '<p class="muted">Sin ventas en el periodo</p>';
+    $('wAdj').innerHTML = adj.map(m => `<tr class="${m.q < 0 ? 'r-warn' : ''}"><td>${esc(m.d)}</td><td>${esc(m.why)}</td><td class="num">${m.q}</td></tr>`).join('') || empty(3);
+    $('wNext').innerHTML = next.map(l => `<tr class="r-warn"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}</td><td>${PS.fmtDate(l.exp)}</td><td class="num">${l.cur}</td></tr>`).join('') || empty(4);
+    const labels = [], data = []; for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) { labels.push(d.toLocaleDateString('es-SV', { weekday: 'short', day: 'numeric' })); data.push(+sales.filter(v => PS.iso(v.date) === PS.iso(d)).reduce((s, v) => s + v.total, 0).toFixed(2)); }
+    if (chart) chart.destroy();
+    chart = new Chart($('wChart'), { type: 'bar', data: { labels, datasets: [{ data, backgroundColor: '#2563eb', borderRadius: 6 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } } });
+  };
+  $('wd').onchange = $('wm').onchange = drawW; drawW();
+});
+</script>
+}

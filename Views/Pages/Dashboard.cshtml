@@ -1,0 +1,47 @@
+@{ ViewData["Title"] = "Panel principal"; }
+<div class="page-h"><div><h2>Panel principal</h2><p id="sub">Resumen operativo de la farmacia</p></div></div>
+<div class="grid g4 mb" id="kpis"></div>
+<div class="grid g-7-5 mb">
+  <div class="card c-blue" id="trendCard"><h3 data-i="trend">Tendencia de ventas · últimos 7 días</h3><div class="chart-box"><canvas id="cTrend"></canvas></div></div>
+  <div class="card c-green"><h3 data-i="box">Productos por estado de inventario</h3><div class="chart-box"><canvas id="cDonut"></canvas></div></div>
+</div>
+<div class="grid g2">
+  <div><h3 style="color:var(--navy);margin-bottom:.6rem" data-i="alert"> Alertas de reabastecimiento</h3>
+    <div class="tw"><table><thead><tr><th>Medicamento</th><th class="num">Stock</th><th class="num">Mínimo</th><th>Estado</th></tr></thead><tbody id="tLow"></tbody></table></div></div>
+  <div><h3 style="color:var(--navy);margin-bottom:.6rem" data-i="clock"> Próximos lotes a vencer (≤ 30 días)</h3>
+    <div class="tw"><table><thead><tr><th>Medicamento</th><th>Lote</th><th>Vence</th><th class="num">Cant.</th><th>Restan</th></tr></thead><tbody id="tSoon"></tbody></table></div></div>
+</div>
+@section Scripts {
+<script>
+PS.boot(S => {
+  const $ = id => document.getElementById(id), esc = PS.esc, today = PS.iso(new Date());
+  const salesOn = k => S.sales.filter(v => PS.iso(v.date) === k).reduce((s, v) => s + v.total, 0);
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const hoy = salesOn(today), ayer = salesOn(PS.iso(y)), dif = ayer > 0 ? ((hoy - ayer) / ayer * 100) : null;
+  const kpi = (cls, bg, icon, v, l, extra = '') => `<div class="card ${cls}"><div class="kpi"><div class="ico" style="background:${bg}">${PS.ico(icon)}</div><div><div class="v">${v}</div><div class="l">${l}</div>${extra}</div></div></div>`;
+  $('kpis').innerHTML =
+    kpi('c-green', 'var(--green)', 'cart', PS.money(hoy), 'Ventas del día', `<div class="trend ${dif === null || dif >= 0 ? 'up' : 'down'}">${dif === null ? '▲ Sin ventas ayer' : (dif >= 0 ? '▲ +' : '▼ ') + dif.toFixed(0) + '% vs ayer'}</div>`) +
+    kpi('c-blue', 'var(--blue)', 'pill', S.meds.filter(m => m.on).length, 'Medicamentos registrados') +
+    kpi(S.low.length ? 'c-red' : 'c-green', S.low.length ? 'var(--red)' : 'var(--ok)', 'alert', S.low.length, 'Alertas de stock crítico') +
+    kpi(S.soon.length ? 'c-amber' : 'c-green', S.soon.length ? 'var(--amber)' : 'var(--ok)', 'clock', S.soon.length, 'Lotes próximos a vencer');
+  $('sub').textContent = S.expired.length ? `⚠ ${S.expired.length} lote(s) vencido(s) con existencias: retirar de la venta` : 'Resumen operativo de la farmacia';
+
+  $('tLow').innerHTML = S.low.length ? S.low.sort((a, b) => a.stock - b.stock).map(m => `<tr class="${m.stock <= 0 ? 'r-crit' : 'r-warn'}"><td><b>${esc(m.n)}</b><br><small class="muted">${esc(m.cat)}</small></td><td class="num">${m.stock}</td><td class="num">${m.min}</td><td>${PS.stockBadge(m)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty-row">Sin alertas de reabastecimiento ✔</td></tr>';
+  $('tSoon').innerHTML = S.soon.length ? S.soon.map(l => `<tr class="${l.st.d <= 7 ? 'r-crit' : 'r-warn'}"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}</td><td>${PS.fmtDate(l.exp)}</td><td class="num">${l.cur}</td><td><span class="badge ${l.st.d <= 7 ? 'b-crit' : 'b-warn'}">${PS.daysTxt(l.st.d)}</span></td></tr>`).join('') : '<tr><td colspan="5" class="empty-row">Ningún lote por vencer ✔</td></tr>';
+
+  // Gráfico 1: ventas 7 días
+  const days = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - 6 + i); return d; });
+  if (!PS.can('Administrador', 'Supervisor')) $('trendCard').classList.add('hide');
+  else {
+    const c = $('cTrend').getContext('2d'), g = c.createLinearGradient(0, 0, 0, 280); g.addColorStop(0, 'rgba(0,168,107,.35)'); g.addColorStop(1, 'rgba(0,168,107,0)');
+    new Chart(c, { type: 'line', data: { labels: days.map(d => d.toLocaleDateString('es-SV', { weekday: 'short', day: 'numeric' })), datasets: [{ label: 'Ventas ($)', data: days.map(d => +salesOn(PS.iso(d)).toFixed(2)), borderColor: '#0f766e', backgroundColor: g, fill: true, tension: .35, pointRadius: 5, pointBackgroundColor: '#00a86b' }] },
+      options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'Monto ($)' }, ticks: { callback: v => '$' + v } }, x: { title: { display: true, text: 'Día' } } } } });
+  }
+  // Gráfico 2: dona por estado (prioridad: vencido > stock bajo > por vencer > vigente)
+  const cnt = { v: 0, s: 0, p: 0, e: 0 };
+  S.meds.filter(m => m.on).forEach(m => { if (m.lots.some(l => l.cur > 0 && l.st.k === 'exp')) cnt.e++; else if (m.stock <= m.min) cnt.s++; else if (m.lots.some(l => l.cur > 0 && l.st.k === 'soon')) cnt.p++; else cnt.v++; });
+  new Chart($('cDonut'), { type: 'doughnut', data: { labels: ['Vigentes', 'Próximos a vencer', 'Vencidos', 'Stock bajo'], datasets: [{ data: [cnt.v, cnt.p, cnt.e, cnt.s], backgroundColor: ['#059669', '#d97706', '#dc2626', '#eab308'], borderWidth: 3, borderColor: '#fff' }] },
+    options: { maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom' } } } });
+});
+</script>
+}

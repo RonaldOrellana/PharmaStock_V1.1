@@ -1,0 +1,38 @@
+@{ ViewData["Title"] = "Ajustes y mermas"; }
+<div class="page-h"><div><h2>Ajustes de inventario y movimientos</h2><p>Todo ajuste exige un motivo y queda en el kardex</p></div></div>
+<div class="grid g-5-7">
+  <div class="card c-amber">
+    <h3 data-i="swap"> Registrar ajuste</h3>
+    <form id="f" novalidate>
+      <div class="field"><label for="lot">Lote *</label><select id="lot"></select><span class="fe"></span></div>
+      <div class="field"><label for="tipo">Tipo de ajuste *</label><select id="tipo"><option value="Merma">Merma (descuenta)</option><option value="Frasco roto">Frasco roto (descuenta)</option><option value="Conteo físico">Ajuste por conteo físico (+ / −)</option></select></div>
+      <div class="field"><label for="q">Cantidad *</label><input id="q" type="number" step="1" /><span class="fe"></span><small class="muted" id="qh"></small></div>
+      <div class="field"><label for="why">Motivo / justificación * (mín. 5 caracteres)</label><textarea id="why" rows="3"></textarea><span class="fe"></span></div>
+      <button class="btn btn-amber btn-block" data-i="check"> Aplicar ajuste</button>
+    </form>
+  </div>
+  <div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Cant.</th><th>Detalle</th><th>Usuario</th></tr></thead><tbody id="rows"></tbody></table></div>
+</div>
+@section Scripts {
+<script>
+PS.boot(S => {
+  const $ = id => document.getElementById(id), esc = PS.esc;
+  const lots = () => S.lots.filter(l => l.cur > 0 || true);
+  $('lot').innerHTML = '<option value="">— Seleccione —</option>' + lots().map(l => `<option value="${l.id}">${esc(l.m.n)} · ${esc(l.num)} · ${l.cur} u.${l.st.k === 'exp' ? ' · VENCIDO' : ''}</option>`).join('');
+  const hint = () => $('qh').textContent = $('tipo').value === 'Conteo físico' ? 'Positivo suma, negativo resta.' : 'Ingrese la cantidad perdida (número positivo).';
+  $('tipo').onchange = hint; hint();
+  const cls = t => ({ ENTRADA: 'b-ok', SALIDA: 'b-info', AJUSTE: 'b-warn' }[t] || 'b-info');
+  const draw = () => $('rows').innerHTML = S.movs.map(m => `<tr><td>${esc(m.d)}</td><td><span class="badge ${cls(m.t)}">${esc(m.t)}</span></td><td class="num ${m.q < 0 ? 'down' : 'up'}">${m.q > 0 ? '+' : ''}${m.q}</td><td>${esc(m.why)}</td><td>${esc(m.u)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-row">Sin movimientos</td></tr>';
+  draw();
+  const bad = (id, msg) => { const i = $(id); i.classList.toggle('bad', !!msg); i.parentElement.querySelector('.fe').textContent = msg || ''; return !!msg; };
+  $('f').onsubmit = async e => {
+    e.preventDefault(); const raw = parseInt($('q').value, 10), tipo = $('tipo').value, why = $('why').value.trim(), l = S.lots.find(x => x.id === +$('lot').value);
+    const q = tipo === 'Conteo físico' ? raw : -Math.abs(raw);
+    const errs = [bad('lot', l ? '' : 'Seleccione un lote'), bad('q', !raw ? 'Ingrese una cantidad distinta de 0' : l && l.cur + q < 0 ? `El lote solo tiene ${l.cur} u.` : ''), bad('why', why.length < 5 ? 'La justificación es obligatoria' : '')];
+    if (errs.some(Boolean)) return PS.toast('warning', 'Complete el motivo y la cantidad');
+    const r = await PS.api('/api/adjust', { lot: l.id, q, why: `${tipo}: ${why}` });
+    if (r.ok) { PS.toast('success', 'Ajuste registrado'); $('f').reset(); await PS.reload(); draw(); } else PS.alertBox('Ajuste rechazado', r.data.error);
+  };
+});
+</script>
+}

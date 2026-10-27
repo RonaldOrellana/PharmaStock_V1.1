@@ -1,0 +1,35 @@
+@{ Layout = null; }
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Ingreso · PharmaStock</title>
+<link rel="stylesheet" href="@Url.Content("~/css/pharma.css")" /></head>
+<body>
+<div class="login">
+  <section class="hero">
+    <div class="brand" style="padding:0;font-size:1.6rem"><div class="logo" data-i="pill"></div>PharmaStock</div>
+    <h1>Control de inventario y facturación farmacéutica</h1>
+    <ul><li>PEPS automático: primero vence, primero sale</li><li>Alertas de stock crítico y lotes por vencer</li><li>Acceso por rol: Administrador, Supervisor, Farmacéutico y Vendedor</li></ul>
+  </section>
+  <section class="box">
+    <form id="f" novalidate>
+      <h2 style="color:var(--navy);margin-bottom:.3rem">Iniciar sesión</h2><p class="muted mb">Ingrese con sus credenciales asignadas.</p>
+      <div class="field"><label for="u">Usuario</label><input id="u" autocomplete="username" autofocus /></div>
+      <div class="field"><label for="p">Contraseña</label><input id="p" type="password" autocomplete="current-password" /></div>
+      <div id="err"></div>
+      <button class="btn btn-green btn-lg btn-block" id="go" data-i="shield"> Ingresar</button>
+    </form>
+  </section>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.10.5/dist/sweetalert2.all.min.js"></script>
+<script src="@Url.Content("~/js/pharma.js")"></script>
+<script>
+  PS.setUser({ id: 0, name: '', role: 'Vendedor' }, 'Login');
+  document.getElementById('f').onsubmit = async e => {
+    e.preventDefault();
+    const u = document.getElementById('u').value.trim(), p = document.getElementById('p').value, err = document.getElementById('err');
+    ['u', 'p'].forEach(i => document.getElementById(i).classList.toggle('bad', !document.getElementById(i).value.trim()));
+    if (!u || !p) { err.innerHTML = PS.banner('amber', 'alert', 'Datos incompletos', 'Ingrese usuario y contraseña.'); return; }
+    const r = await PS.api('/api/login', { u, p });
+    if (r.ok) location.href = r.data.home; else err.innerHTML = PS.banner('red', 'alert', 'Acceso rechazado', PS.esc(r.data.error || 'Error de autenticación.'));
+  };
+</script>
+</body></html>

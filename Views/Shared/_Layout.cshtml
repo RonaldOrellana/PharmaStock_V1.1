@@ -1,0 +1,37 @@
+@{
+    var uid  = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0";
+    var name = User.FindFirstValue(ClaimTypes.Name) ?? "";
+    var role = User.FindFirstValue(ClaimTypes.Role) ?? "Vendedor";
+    var pg = ViewContext.RouteData.Values["action"]?.ToString() ?? "";
+}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · PharmaStock</title>
+    <link rel="stylesheet" href="@Url.Content("~/css/pharma.css")" />
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar" id="sidebar">
+        <div class="brand"><div class="logo" data-i="pill"></div><div>PharmaStock<small>GESTIÓN FARMACÉUTICA</small></div></div>
+        <nav class="nav" id="nav"></nav>
+        <div class="sb-foot"><div id="userbox"></div><a href="/Logout" class="btn btn-out btn-block" style="margin-top:.8rem" data-i="logout">Cerrar sesión</a></div>
+    </aside>
+    <div class="main">
+        <header class="topbar">
+            <button class="burger" id="burger" aria-label="Menú" data-i="menu"></button>
+            <h1>@ViewData["Title"]</h1>
+            <div class="bell" id="bell"></div>
+        </header>
+        <main class="content">@RenderBody()</main>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.10.5/dist/sweetalert2.all.min.js"></script>
+<script src="@Url.Content("~/js/pharma.js")"></script>
+<script>PS.setUser({ id: @uid, name: @Json.Serialize(name), role: "@role" }, "@pg");</script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

@@ -1,0 +1,53 @@
+@{ ViewData["Title"] = "Catálogo de medicamentos"; }
+<div class="page-h"><div><h2>Catálogo y búsqueda de productos</h2><p id="hint"></p></div></div>
+<div class="grid g-7-5" id="layout">
+  <div>
+    <div class="flex mb"><div class="sp"><input id="s" placeholder="Buscar por nombre, código o categoría…" /></div></div>
+    <div class="tw"><table><thead><tr><th>Código</th><th>Medicamento</th><th>Categoría</th><th class="num">Precio</th><th class="num">Stock</th><th>Estado</th><th class="right">Acciones</th></tr></thead><tbody id="rows"></tbody></table></div>
+    <h3 style="margin:1.4rem 0 .6rem;color:var(--navy)" data-i="box"> Proveedores</h3>
+    <div class="tw"><table><thead><tr><th>Empresa</th><th>Teléfono</th></tr></thead><tbody id="provs"></tbody></table></div>
+  </div>
+  <div class="card c-green" id="formCard">
+    <h3 data-i="plus"> Nuevo medicamento</h3>
+    <form id="f" novalidate>
+      <div class="field"><label for="code">Código de barras *</label><input id="code" /><span class="fe"></span></div>
+      <div class="field"><label for="name">Nombre comercial *</label><input id="name" /><span class="fe"></span></div>
+      <div class="field"><label for="cat">Categoría *</label><select id="cat"></select><span class="fe"></span></div>
+      <div class="row2"><div class="field"><label for="price">Precio de venta ($) *</label><input id="price" type="number" step="0.01" /><span class="fe"></span></div>
+      <div class="field"><label for="min">Stock mínimo</label><input id="min" type="number" step="1" value="10" /><span class="fe"></span></div></div>
+      <button class="btn btn-green btn-block" data-i="check"> Guardar medicamento</button>
+    </form>
+  </div>
+</div>
+@section Scripts {
+<script>
+PS.boot(S => {
+  const $ = id => document.getElementById(id), esc = PS.esc, admin = PS.role() === 'Administrador';
+  $('hint').textContent = admin ? 'Alta, baja y consulta de medicamentos' : 'Consulta de productos, existencias y lotes (solo lectura)';
+  if (!admin) { $('formCard').classList.add('hide'); $('layout').style.gridTemplateColumns = '1fr'; }
+  $('cat').innerHTML = '<option value="">— Seleccione —</option>' + S.cats.map(c => `<option>${esc(c)}</option>`).join('');
+  const draw = () => {
+    const t = $('s').value.toLowerCase();
+    const list = S.meds.filter(m => !t || (m.n + m.code + m.cat).toLowerCase().includes(t));
+    $('rows').innerHTML = list.map(m => `<tr class="${!m.on ? '' : m.stock <= 0 ? 'r-crit' : m.stock <= m.min ? 'r-warn' : ''}" style="${m.on ? '' : 'opacity:.5'}"><td>${esc(m.code)}</td><td><b>${esc(m.n)}</b></td><td>${esc(m.cat)}</td><td class="num">${PS.money(m.price)}</td><td class="num">${m.stock}</td><td>${m.on ? PS.stockBadge(m) : '<span class="badge b-info">Inactivo</span>'}</td>
+      <td class="right"><button class="btn btn-out ib" data-v="${m.id}" title="Ver lotes">${PS.ico('eye')}</button>${admin ? ` <button class="btn ${m.on ? 'btn-red' : 'btn-green'} ib" data-t="${m.id}" title="${m.on ? 'Desactivar' : 'Activar'}">${PS.ico(m.on ? 'trash' : 'check')}</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="empty-row">Sin resultados</td></tr>';
+    document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { const m = S.med(+b.dataset.v);
+      Swal.fire({ title: m.n, width: 640, confirmButtonColor: '#1e3a8a', html: `<table style="font-size:.9rem"><thead><tr><th>Lote</th><th>Vence</th><th>Cant.</th><th>Estado</th></tr></thead><tbody>${m.lots.map(l => `<tr><td>${esc(l.num)}</td><td>${l.exp}</td><td>${l.cur}</td><td>${PS.lotBadge(l)}</td></tr>`).join('') || '<tr><td colspan="4">Sin lotes</td></tr>'}</tbody></table>` }); });
+    document.querySelectorAll('[data-t]').forEach(b => b.onclick = async () => { const r = await PS.api(`/api/meds/${b.dataset.t}/toggle`); if (r.ok) { await PS.reload(); draw(); PS.toast('success', 'Estado actualizado'); } });
+  };
+  $('provs').innerHTML = S.provs.map(p => `<tr><td>${esc(p.n)}</td><td>${esc(p.t || '—')}</td></tr>`).join('');
+  $('s').oninput = draw; draw();
+  const bad = (id, msg) => { const i = $(id); i.classList.toggle('bad', !!msg); i.parentElement.querySelector('.fe').textContent = msg || ''; return !!msg; };
+  $('f').onsubmit = async e => {
+    e.preventDefault(); const code = $('code').value.trim(), price = parseFloat($('price').value), min = parseInt($('min').value, 10);
+    const dup = S.meds.some(m => m.code.toLowerCase() === code.toLowerCase());
+    const errs = [bad('code', !code ? 'Obligatorio' : dup ? 'Código ya registrado' : ''), bad('name', $('name').value.trim() ? '' : 'Obligatorio'), bad('cat', $('cat').value ? '' : 'Seleccione una categoría'),
+      bad('price', !(price > 0) ? 'Debe ser mayor que 0' : ''), bad('min', !(min >= 0) ? 'Debe ser 0 o más' : '')];
+    if (dup) return PS.alertBox('Código de barras duplicado', `El código ${code} ya pertenece a otro medicamento (RN-04).`, 'warning');
+    if (errs.some(Boolean)) return PS.toast('warning', 'Revise los campos marcados (RN-04)');
+    const r = await PS.api('/api/meds', { code, n: $('name').value.trim(), cat: $('cat').value, price, min });
+    if (r.ok) { PS.toast('success', 'Medicamento registrado'); $('f').reset(); await PS.reload(); draw(); } else PS.alertBox('No se pudo guardar', r.data.error);
+  };
+});
+</script>
+}
