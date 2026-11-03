@@ -25,4 +25,5 @@ public class PagesController : Controller
     [Authorize(Roles = $"{A},{S}")] public IActionResult Lotes() => View();
     [Authorize(Roles = $"{A},{S}")] public IActionResult Movimientos() => View();
     [Authorize(Roles = $"{A},{S}")] public IActionResult Reportes() => View();
+    [Authorize(Roles = $"{A}")] public IActionResult Usuarios() => View();
 }

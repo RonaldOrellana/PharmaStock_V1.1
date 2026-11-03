@@ -1,12 +1,13 @@
-using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Reflection.Emit;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 
 var b = WebApplication.CreateBuilder(args);
 
@@ -31,9 +32,15 @@ var app = b.Build();
 
 using (var s = app.Services.CreateScope())
 {
-    var d = s.ServiceProvider.GetRequiredService<Db>();
-    d.Database.EnsureCreated();   // Crea PharmaStockDB y las tablas si no existen
-    Seed(d);                      // Datos iniciales idempotentes (roles, usuarios, catálogo de ejemplo)
+    try
+    {
+        var d = s.ServiceProvider.GetRequiredService<Db>();
+        d.Database.EnsureCreated();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error al conectar/crear BD: {ex.Message}");
+    }
 }
 
 app.UseStaticFiles();
@@ -51,17 +58,28 @@ AuthorizeAttribute Roles(params string[] r) => new() { Roles = string.Join(",", 
 app.MapPost("/api/login", async (LoginReq r, Db d, HttpContext h) =>
 {
     if (string.IsNullOrWhiteSpace(r.u) || string.IsNullOrWhiteSpace(r.p))
-        return Results.Json(new { error = "Ingresa usuario y contraseña." }, statusCode: 400);
+        return Results.Ok(new { ok = false, error = "Ingresa usuario y contraseña." });
 
-    var u = await d.Usuarios.Include(x => x.Rol).FirstOrDefaultAsync(x => x.Usuario.ToLower() == r.u.ToLower() && x.Estado);
-    if (u == null || !string.Equals(u.ClaveHash, Hash(r.p), StringComparison.OrdinalIgnoreCase))
-        return Results.Json(new { error = "Credenciales incorrectas. Revisa usuario y contraseña." }, statusCode: 401);
+    var u = await d.Usuarios.Include(x => x.Rol)
+        .FirstOrDefaultAsync(x => x.Usuario.ToLower() == r.u.ToLower() && x.Estado);
+
+    var passMatch = u != null && (
+        string.Equals(u.ClaveHash, Hash(r.p), StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(u.ClaveHash, HashSql(r.p), StringComparison.OrdinalIgnoreCase)
+    );
+
+    if (u == null || !passMatch)
+        return Results.Ok(new { ok = false, error = "Credenciales incorrectas. Revisa usuario y contraseña." });
 
     var role = NormRole(u.Rol.NombreRol);
     var id = new ClaimsIdentity(new[] {
-        new Claim(ClaimTypes.NameIdentifier, u.IdUsuario.ToString()), new Claim(ClaimTypes.Name, u.Nombre), new Claim(ClaimTypes.Role, role) },
-        CookieAuthenticationDefaults.AuthenticationScheme);
+        new Claim(ClaimTypes.NameIdentifier, u.IdUsuario.ToString()),
+        new Claim(ClaimTypes.Name, u.Nombre),
+        new Claim(ClaimTypes.Role, role)
+    }, CookieAuthenticationDefaults.AuthenticationScheme);
+
     await h.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(id));
+
     return Results.Ok(new { ok = true, role, home = role == V ? "/Facturacion" : "/Dashboard" });
 });
 
@@ -79,6 +97,16 @@ app.MapGet("/api/state", async (Db d, HttpContext h) =>
         ? await d.MovimientosInventario.Include(m => m.Usuario).OrderByDescending(m => m.IdMovimiento).Take(300).ToListAsync()
         : new List<Movimiento>();
 
+    var users = role is A
+        ? await d.Usuarios.Include(u => u.Rol).Select(u => new {
+            id = u.IdUsuario,
+            name = u.Nombre,
+            username = u.Usuario,
+            role = u.Rol.NombreRol,
+            active = u.Estado
+        }).ToListAsync()
+        : null;
+
     return new
     {
         cats = await d.Categorias.Select(c => c.NombreCategoria).ToListAsync(),
@@ -87,13 +115,17 @@ app.MapGet("/api/state", async (Db d, HttpContext h) =>
         lots = lots.Select(l => new { id = l.IdLote, med = l.IdMedicamento, prov = l.IdProveedor, num = l.NumeroLote, exp = l.FechaVencimiento.ToString("yyyy-MM-dd"), ini = l.CantidadInicial, cur = l.CantidadActual }),
         sales = sales.Select(v => new
         {
-            num = v.NumeroFactura, fecha = v.FechaVenta,
+            num = v.NumeroFactura,
+            fecha = v.FechaVenta,
             user = v.Usuario != null ? v.Usuario.Nombre : "Sistema",
             cli = v.Cliente != null ? v.Cliente.NombreCompleto : "Consumidor final",
             items = v.Detalles.Select(x => new { n = x.Medicamento.NombreComercial, lote = x.Lote.NumeroLote, q = x.Cantidad, p = x.PrecioUnitario }),
-            sub = v.Subtotal, iva = v.IVA, total = v.Total
+            sub = v.Subtotal,
+            iva = v.IVA,
+            total = v.Total
         }),
-        movs = movs.Select(m => new { id = m.IdMovimiento, med = m.IdMedicamento, lot = m.IdLote, t = m.TipoMovimiento, q = m.Cantidad, why = m.Motivo, u = m.Usuario != null ? m.Usuario.Nombre : "Sistema", d = m.FechaMovimiento.ToString("dd/MM/yyyy HH:mm") })
+        movs = movs.Select(m => new { id = m.IdMovimiento, med = m.IdMedicamento, lot = m.IdLote, t = m.TipoMovimiento, q = m.Cantidad, why = m.Motivo, u = m.Usuario != null ? m.Usuario.Nombre : "Sistema", d = m.FechaMovimiento.ToString("yyyy-MM-ddTHH:mm:ss") }),
+        users = users
     };
 }).RequireAuthorization();
 
@@ -162,7 +194,7 @@ app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h) =>
     var lotIds = r.items.Select(i => i.lot).Distinct().ToList();
     var medIds = await d.Lotes.Where(l => lotIds.Contains(l.IdLote)).Select(l => l.IdMedicamento).Distinct().ToListAsync();
     if (medIds.Count == 0) return Err("Lote inválido.");
-    var pool = await d.Lotes.Include(l => l.Medicamento).Where(l => medIds.Contains(l.IdMedicamento)).ToListAsync(); // instancias rastreadas
+    var pool = await d.Lotes.Include(l => l.Medicamento).Where(l => medIds.Contains(l.IdMedicamento)).ToListAsync();
     if (lotIds.Any(id => pool.All(l => l.IdLote != id))) return Err("Lote inválido.");
 
     var num = "FAC-" + ((await d.Ventas.CountAsync()) + 1).ToString("D6");
@@ -213,65 +245,79 @@ app.MapPost("/api/adjust", async (AdjReq r, Db d, HttpContext h) =>
     return Results.Ok(new { ok = true });
 }).RequireAuthorization(Roles(A, S));
 
+// ---------- USUARIOS (RF-04: solo Administrador) ----------
+app.MapGet("/api/users", async (Db d) =>
+{
+    var usuarios = await d.Usuarios
+        .Include(u => u.Rol)
+        .OrderBy(u => u.IdUsuario)
+        .Select(u => new {
+            id = u.IdUsuario,
+            name = u.Nombre,
+            username = u.Usuario,
+            role = u.Rol.NombreRol,
+            active = u.Estado
+        })
+        .ToListAsync();
+
+    return Results.Ok(usuarios);
+}).RequireAuthorization(Roles(A));
+
+
+
+app.MapPost("/api/users", async (UserReq r, Db d) =>
+{
+    if (string.IsNullOrWhiteSpace(r.nombre)) return Err("El nombre completo es obligatorio.");
+    if (string.IsNullOrWhiteSpace(r.u)) return Err("El nombre de usuario es obligatorio.");
+    if (string.IsNullOrWhiteSpace(r.p) || r.p.Length < 6) return Err("La contraseña debe tener al menos 6 caracteres.");
+    if (r.idRol <= 0) return Err("Debe seleccionar un rol válido.");
+
+    var userClean = r.u.Trim();
+    if (await d.Usuarios.AnyAsync(u => u.Usuario.ToLower() == userClean.ToLower()))
+        return Err($"El usuario '{userClean}' ya está registrado.");
+
+    var rol = await d.Roles.FindAsync(r.idRol);
+    if (rol == null) return Err("El rol seleccionado no existe.");
+
+    var nuevoUsuario = new Usr
+    {
+        Nombre = r.nombre.Trim(),
+        Usuario = userClean,
+        ClaveHash = HashSql(r.p),
+        IdRol = r.idRol,
+        Estado = true
+    };
+
+    d.Usuarios.Add(nuevoUsuario);
+    await d.SaveChangesAsync();
+
+    return Results.Ok(new { ok = true, id = nuevoUsuario.IdUsuario });
+}).RequireAuthorization(Roles(A));
+
+app.MapPost("/api/users/{id}/toggle", async (int id, Db d) =>
+{
+    var u = await d.Usuarios.FindAsync(id);
+    if (u == null) return Err("El usuario especificado no existe.");
+
+    u.Estado = !u.Estado;
+    await d.SaveChangesAsync();
+    return Results.Ok(new { ok = true, estado = u.Estado });
+}).RequireAuthorization(Roles(A));
+
+// ---------- INICIO DE APLICACIÓN ----------
 app.Run();
 
-// Normaliza roles heredados ("Admin", "Cajero") a los 4 roles del sistema. Desconocido = mínimo privilegio.
+// ---------- FUNCIONES AUXILIARES ----------
 static string NormRole(string n) => (n ?? "").Trim().ToLowerInvariant() switch
 {
     "administrador" or "admin" => "Administrador",
     "supervisor" => "Supervisor",
-    "farmaceutico" or "farmacéutico" or "cajero" => "Farmaceutico",
+    "farmaceutico" or "farmacéutico" or "cajero" or "cajero/farmaceutico" => "Farmaceutico",
     _ => "Vendedor"
 };
 
 static string Hash(string s) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
-
-static void Seed(Db d)
-{
-    void Role(string n, string desc) { if (!d.Roles.Any(r => r.NombreRol == n)) d.Roles.Add(new Rol { NombreRol = n, Descripcion = desc }); }
-    Role("Administrador", "Acceso total al sistema");
-    Role("Supervisor", "Lotes, proveedores, ajustes y reportes");
-    Role("Farmaceutico", "Ventas, consulta de lotes y alertas");
-    Role("Vendedor", "Solo punto de venta");
-    d.SaveChanges();
-
-    void User(string nombre, string usr, string clave, string rol)
-    {
-        if (d.Usuarios.Any(u => u.Usuario == usr)) return;
-        d.Usuarios.Add(new Usr { Nombre = nombre, Usuario = usr, ClaveHash = Hash(clave), IdRol = d.Roles.First(r => r.NombreRol == rol).IdRol, Estado = true });
-    }
-    User("Administrador del Sistema", "admin", "Admin123*", "Administrador");
-    User("Sofía Martínez", "supervisor1", "Super123*", "Supervisor");
-    User("Laura Fuentes", "farma1", "Farma123*", "Farmaceutico");
-    User("Miguel Rivas", "vendedor1", "Vende123*", "Vendedor");
-    d.SaveChanges();
-
-    if (!d.Clientes.Any()) { d.Clientes.Add(new Cliente { NombreCompleto = "Consumidor final" }); d.SaveChanges(); }
-    if (!d.Categorias.Any()) { d.Categorias.AddRange(new[] { "Analgésicos", "Antibióticos", "Antihistamínicos", "Vitaminas", "Gastrointestinales" }.Select(n => new Categoria { NombreCategoria = n })); d.SaveChanges(); }
-    if (!d.Proveedores.Any()) { d.Proveedores.AddRange(new Proveedor { NombreEmpresa = "Droguería Central", Telefono = "2222-1000" }, new Proveedor { NombreEmpresa = "FarmaDist S.A.", Telefono = "2222-2000" }); d.SaveChanges(); }
-    if (d.Medicamentos.Any()) return;
-
-    int Cat(string n) => d.Categorias.First(c => c.NombreCategoria == n).IdCategoria;
-    var prov = d.Proveedores.First().IdProveedor;
-    var T = DateTime.Today;
-    void Med(string code, string n, string cat, decimal price, int min, params (string lote, int days, int qty)[] lots)
-    {
-        var m = new Medicamento { CodigoBarras = code, NombreComercial = n, IdCategoria = Cat(cat), PrecioVenta = price, StockMinimo = min };
-        foreach (var x in lots)
-        {
-            m.StockActual += x.qty;
-            d.Lotes.Add(new Lote { Medicamento = m, IdProveedor = prov, NumeroLote = x.lote, FechaFabricacion = T.AddMonths(-6), FechaVencimiento = T.AddDays(x.days), CantidadInicial = x.qty, CantidadActual = x.qty });
-        }
-        d.Medicamentos.Add(m);
-    }
-    Med("7501001", "Paracetamol 500 mg", "Analgésicos", 1.25m, 20, ("PAR-A1", 12, 30), ("PAR-B2", 240, 80));
-    Med("7501002", "Ibuprofeno 400 mg", "Analgésicos", 2.10m, 15, ("IBU-A1", -5, 18), ("IBU-B1", 300, 6));
-    Med("7501003", "Amoxicilina 500 mg", "Antibióticos", 4.80m, 15, ("AMX-A1", 20, 25), ("AMX-B1", 400, 60));
-    Med("7501004", "Loratadina 10 mg", "Antihistamínicos", 1.90m, 10, ("LOR-A1", 180, 45));
-    Med("7501005", "Vitamina C 1 g", "Vitaminas", 3.40m, 12, ("VIC-A1", 25, 9));
-    Med("7501006", "Omeprazol 20 mg", "Gastrointestinales", 2.75m, 10, ("OME-A1", 365, 70));
-    d.SaveChanges();
-}
+static string HashSql(string s) => Convert.ToHexString(SHA256.HashData(Encoding.Unicode.GetBytes(s)));
 
 // ---------- DTOs ----------
 record LoginReq(string u, string p);
@@ -280,6 +326,7 @@ record LotReq(int med, int prov, string num, string exp, int q, int uid);
 record Item(int lot, int q);
 record SaleReq(int uid, string cli, List<Item> items);
 record AdjReq(int lot, int q, string why, int uid);
+record UserReq(string nombre, string u, string p, int idRol);
 
 // ---------- ENTIDADES ----------
 [Table("Roles")]
@@ -431,5 +478,9 @@ class Db : DbContext
         mb.Entity<Usr>().HasIndex(u => u.Usuario).IsUnique();
         mb.Entity<Medicamento>().HasIndex(m => m.CodigoBarras).IsUnique();
         mb.Entity<Venta>().HasIndex(v => v.NumeroFactura).IsUnique();
+        // 💡 Indicar a EF Core que la tabla Lotes maneja Triggers en SQL Server
+        mb.Entity<Lote>()
+            .ToTable(tb => tb.HasTrigger("TR_Lotes_ActualizarStockMedicamento"));
     }
+
 }

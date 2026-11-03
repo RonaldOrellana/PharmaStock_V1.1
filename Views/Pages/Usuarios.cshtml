@@ -1,0 +1,122 @@
+﻿@{
+    ViewData["Title"] = "Gestión de Usuarios";
+}
+
+
+    <!-- Vinculación del CSS externo con control de versión de Razor para romper la caché -->
+    <link rel="stylesheet" href="~/css/pharma.css" asp-append-version="true" />
+
+<!-- Encabezado de la Sección -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="ps-page-title">Gestión de Usuarios</h2>
+        <p class="text-muted mb-0">Generación de credenciales y administración de accesos del personal</p>
+    </div>
+    <button type="button" class="btn btn-primary px-4 py-2 fw-semibold rounded-3 shadow-sm" onclick="abrirModalUsuario()">
+        + Nuevo Usuario
+    </button>
+</div>
+
+<!-- Tabla Principal de Usuarios -->
+<div class="ps-table-card mb-5">
+    <div class="table-responsive">
+        <table class="table ps-table mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4">ID</th>
+                    <th>Nombre Completo</th>
+                    <th>Usuario</th>
+                    <th>Rol</th>
+                    <th>Estado</th>
+                    <th class="pe-4 text-end">Acción</th>
+                </tr>
+            </thead>
+            <tbody id="tbodyUsuarios">
+                <!-- Se inyecta dinámicamente desde pharma.js -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal Flotante Centrado -->
+<div id="modalUsuarioOverlay" class="ps-modal-overlay">
+    <div class="ps-modal-card">
+
+        <!-- Header del Modal -->
+        <div class="ps-modal-header">
+            <div>
+                <h5 class="ps-modal-title">Crear Nuevo Usuario</h5>
+                <small class="ps-modal-subtitle">Asigna datos de acceso y un rol dentro del sistema</small>
+            </div>
+            <button type="button" class="btn-close shadow-none" onclick="cerrarModalUsuario()"></button>
+        </div>
+
+        <!-- Formulario -->
+        <form id="formUsuario" onsubmit="guardarUsuario(event)" novalidate>
+            <div class="ps-modal-body">
+                <div class="row g-3">
+
+                    <div class="col-md-6">
+                        <label class="ps-label">Nombre Completo <span class="text-danger">*</span></label>
+                        <input type="text" id="usrNombre" class="ps-input" placeholder="Ej: Juan Pérez" autocomplete="off" />
+                        <div class="ps-feedback">Ingresa solo letras (mínimo 3 caracteres).</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="ps-label">Nombre de Usuario <span class="text-danger">*</span></label>
+                        <input type="text" id="usrUsuario" class="ps-input" placeholder="Ej: jperez" autocomplete="off" />
+                        <div class="ps-feedback">Sin espacios (mínimo 4 caracteres).</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="ps-label">Contraseña Inicial <span class="text-danger">*</span></label>
+                        <input type="password" id="usrClave" class="ps-input" placeholder="••••••••" />
+                        <div class="ps-feedback">Mínimo 6 caracteres.</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="ps-label">Rol Asignado <span class="text-danger">*</span></label>
+                        <select id="usrRol" class="ps-input">
+                            <option value="" disabled selected>-- Seleccione un Rol --</option>
+                            <option value="2">Cajero/Farmacéutico</option>
+                            <option value="3">Supervisor</option>
+                            <option value="4">Vendedor</option>
+                        </select>
+                        <div class="ps-feedback">Selecciona un rol.</div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Footer con Botones Separados -->
+            <div class="ps-modal-footer">
+                <button type="button" class="btn btn-light px-4 rounded-3 border fw-semibold" onclick="cerrarModalUsuario()">
+                    Cancelar
+                </button>
+                <button type="submit" class="btn btn-primary px-4 rounded-3 fw-semibold shadow-sm">
+                    Guardar Usuario
+                </button>
+            </div>
+        </form>
+
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function abrirModalUsuario() {
+            const modal = document.getElementById('modalUsuarioOverlay');
+            if (modal) modal.classList.add('active');
+        }
+
+        function cerrarModalUsuario() {
+            const modal = document.getElementById('modalUsuarioOverlay');
+            if (modal) modal.classList.remove('active');
+
+            const inputs = document.querySelectorAll('#formUsuario .ps-input');
+            inputs.forEach(i => i.classList.remove('is-invalid'));
+        }
+
+        document.addEventListener('DOMContentLoaded', cargarUsuarios);
+    </script>
+}

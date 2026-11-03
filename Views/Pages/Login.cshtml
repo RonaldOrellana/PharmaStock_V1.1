@@ -1,35 +1,274 @@
-@{ Layout = null; }
+@{
+    Layout = null;
+}
 <!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Ingreso · PharmaStock</title>
-<link rel="stylesheet" href="@Url.Content("~/css/pharma.css")" /></head>
-<body>
-<div class="login">
-  <section class="hero">
-    <div class="brand" style="padding:0;font-size:1.6rem"><div class="logo" data-i="pill"></div>PharmaStock</div>
-    <h1>Control de inventario y facturación farmacéutica</h1>
-    <ul><li>PEPS automático: primero vence, primero sale</li><li>Alertas de stock crítico y lotes por vencer</li><li>Acceso por rol: Administrador, Supervisor, Farmacéutico y Vendedor</li></ul>
-  </section>
-  <section class="box">
-    <form id="f" novalidate>
-      <h2 style="color:var(--navy);margin-bottom:.3rem">Iniciar sesión</h2><p class="muted mb">Ingrese con sus credenciales asignadas.</p>
-      <div class="field"><label for="u">Usuario</label><input id="u" autocomplete="username" autofocus /></div>
-      <div class="field"><label for="p">Contraseña</label><input id="p" type="password" autocomplete="current-password" /></div>
-      <div id="err"></div>
-      <button class="btn btn-green btn-lg btn-block" id="go" data-i="shield"> Ingresar</button>
-    </form>
-  </section>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.10.5/dist/sweetalert2.all.min.js"></script>
-<script src="@Url.Content("~/js/pharma.js")"></script>
-<script>
-  PS.setUser({ id: 0, name: '', role: 'Vendedor' }, 'Login');
-  document.getElementById('f').onsubmit = async e => {
-    e.preventDefault();
-    const u = document.getElementById('u').value.trim(), p = document.getElementById('p').value, err = document.getElementById('err');
-    ['u', 'p'].forEach(i => document.getElementById(i).classList.toggle('bad', !document.getElementById(i).value.trim()));
-    if (!u || !p) { err.innerHTML = PS.banner('amber', 'alert', 'Datos incompletos', 'Ingrese usuario y contraseña.'); return; }
-    const r = await PS.api('/api/login', { u, p });
-    if (r.ok) location.href = r.data.home; else err.innerHTML = PS.banner('red', 'alert', 'Acceso rechazado', PS.esc(r.data.error || 'Error de autenticación.'));
-  };
-</script>
-</body></html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ingreso · PharmaStock</title>
+    <link rel="stylesheet" href="@Url.Content("~/css/pharma.css")" />
+    <style>
+            /* Estilo de alerta en línea integrado al formulario (estilo Google) */
+            .inline-alert {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: #d93025;
+                font-size: 0.85rem;
+                font-weight: 500;
+                margin: 10px 0 16px 0;
+                padding: 8px 12px;
+                background-color: #fce8e6;
+                border-radius: 6px;
+                border: 1px solid #f5c2c0;
+                animation: fadeIn 0.2s ease-in-out;
+            }
+
+                .inline-alert svg {
+                    width: 18px;
+                    height: 18px;
+                    flex-shrink: 0;
+                    stroke: #d93025;
+                }
+
+            .clean-input-wrapper input.bad {
+                border-color: #d93025 !important;
+            }
+
+            @@keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-4px);
+                }
+
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+    </style>
+</head>
+<body class="pharma-login-body">
+
+    <!-- Partículas de luz flotando en el fondo general -->
+    <div class="bg-particle p1"></div>
+    <div class="bg-particle p2"></div>
+
+    <div class="card-login-wrapper animate-card-entry">
+
+        <!-- Columna Izquierda: Fondo Vivo + Personajes Pastillas Interactivas -->
+        <div class="col-illustration">
+
+            <!-- Burbujas decorativas flotando en el fondo del panel izquierdo -->
+            <div class="bubble b1"></div>
+            <div class="bubble b2"></div>
+            <div class="bubble b3"></div>
+
+            <!-- Header del sistema PharmaStock -->
+            <div class="pharma-brand-header">
+                <div class="brand-logo-pill">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z" />
+                        <path d="m8.5 8.5 7 7" />
+                    </svg>
+                </div>
+                <span class="brand-name">PharmaStock</span>
+            </div>
+
+            <div class="illustration-container">
+
+                <!-- Pastilla 1: Comprimido azul marino (Flota y se mece) -->
+                <div class="pharm-char char-pill-blue anim-float-slow" id="charPill">
+                    <div class="pill-notch"></div>
+                    <div class="char-face">
+                        <div class="eyes">
+                            <span class="eye-socket"><span class="pupil"></span></span>
+                            <span class="eye-socket"><span class="pupil"></span></span>
+                        </div>
+                        <div class="mouth happy"></div>
+                    </div>
+                </div>
+
+                <!-- Pastilla 2: Cápsula Verde/Verde claro (Rebota y parpadea) -->
+                <div class="pharm-char char-capsule-bicolor anim-float-bounce" id="charCapsule">
+                    <div class="capsule-top"></div>
+                    <div class="capsule-bottom"></div>
+                    <div class="char-face">
+                        <div class="eyes">
+                            <span class="eye-socket"><span class="pupil anim-blink"></span></span>
+                            <span class="eye-socket"><span class="pupil anim-blink"></span></span>
+                        </div>
+                        <div class="mouth smile"></div>
+                    </div>
+                </div>
+
+                <!-- Pastilla 3: Píldora Cian (Se bambolea en bucle) -->
+                <div class="pharm-char char-pill-cyan anim-float-wobble" id="charBottle">
+                    <div class="pill-line"></div>
+                    <div class="char-face">
+                        <div class="eyes">
+                            <span class="eye-socket"><span class="pupil"></span></span>
+                            <span class="eye-socket"><span class="pupil"></span></span>
+                        </div>
+                        <div class="mouth open"></div>
+                    </div>
+                </div>
+
+            </div>
+
+            <p class="illustration-footer-text">Control de inventario y punto de venta</p>
+        </div>
+
+        <!-- Columna Derecha: Formulario Limpio con Icono de Edificio de Farmacia -->
+        <div class="col-form-clean">
+
+            <!-- Icono Realista de Edificio de Farmacia -->
+            <div class="pharmacy-icon-wrapper">
+                <div class="pharmacy-cross-badge">
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <!-- Estructura del edificio de la farmacia -->
+                        <path d="M3 21h18" />
+                        <path d="M5 21V7l7-4 7 4v14" />
+                        <path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4" />
+                        <!-- Toldo / Awaning -->
+                        <path d="M4 11h16" />
+                        <!-- Ventana -->
+                        <rect x="9" y="7" width="6" height="4" rx="1" />
+                    </svg>
+                </div>
+            </div>
+
+            <h2 class="welcome-title">Bienvenido de nuevo</h2>
+            <p class="welcome-subtitle">Por favor ingrese sus credenciales</p>
+
+            <form id="f" novalidate autocomplete="off">
+
+                <!-- Input Usuario -->
+                <div class="clean-field-group">
+                    <label for="u">Usuario</label>
+                    <div class="clean-input-wrapper">
+                        <input id="u" type="text" placeholder="Ej. admin" autocomplete="off" autofocus />
+                        <span class="animated-underline"></span>
+                    </div>
+                </div>
+
+                <!-- Input Contraseña -->
+                <div class="clean-field-group">
+                    <label for="p">Contraseña</label>
+                    <div class="clean-input-wrapper">
+                        <input id="p" type="password" placeholder="••••••••" autocomplete="off" />
+                        <span class="animated-underline"></span>
+                    </div>
+                </div>
+
+                <!-- Mensaje de Alerta en Línea Directo al Formulario -->
+                <div id="err"></div>
+
+                <!-- Botón Ingresar Pill -->
+                <button class="btn-clean-pill" id="go" type="submit">
+                    <span>Ingresar</span>
+                </button>
+
+                <div class="form-footer-note">
+                    <span>PharmaStock v1.1 &bull; Sistema Seguro</span>
+                </div>
+
+            </form>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.10.5/dist/sweetalert2.all.min.js"></script>
+    <script src="@Url.Content("~/js/pharma.js")"></script>
+    <script>
+            PS.setUser({ id: 0, name: '', role: 'Vendedor' }, 'Login');
+
+            // --- INTERACCIÓN DE OJOS Y MOVIMIENTO DE PASTILLAS ---
+            const userInput = document.getElementById('u');
+            const passInput = document.getElementById('p');
+            const pupils = document.querySelectorAll('.pupil');
+            const characters = document.querySelectorAll('.pharm-char');
+
+            function trackTyping(e, isPassword = false) {
+                const valLength = e.target.value.length;
+                const moveX = Math.min(Math.max((valLength * 1.2) - 8, -6), 6);
+                const tilt = isPassword ? -3 : Math.min(valLength * 0.5, 4);
+
+                pupils.forEach(pupil => {
+                    pupil.style.transform = `translate(${moveX}px, ${isPassword ? 3 : 0}px)`;
+                });
+
+                characters.forEach((char, index) => {
+                    const offsetX = (moveX * (index + 1) * 0.35);
+                    char.style.transform = `translateX(${offsetX}px) rotate(${tilt}deg)`;
+                });
+            }
+
+            userInput.addEventListener('input', (e) => trackTyping(e, false));
+            passInput.addEventListener('input', (e) => trackTyping(e, true));
+
+            [userInput, passInput].forEach(input => {
+                input.addEventListener('blur', () => {
+                    pupils.forEach(p => p.style.transform = 'translate(0px, 0px)');
+                    characters.forEach(c => c.style.transform = 'translateX(0px) rotate(0deg)');
+                });
+            });
+
+            // --- MANEJO DE ALERTAS DIRECTAS EN EL FORMULARIO SIN SWEETALERT ---
+            document.getElementById('f').onsubmit = async e => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const u = userInput.value.trim();
+                const p = passInput.value;
+                const btn = document.getElementById('go');
+                const errContainer = document.getElementById('err');
+
+                // Limpiar alertas previas y bordes rojos
+                errContainer.innerHTML = '';
+                [userInput, passInput].forEach(i => i.classList.remove('bad'));
+
+                // Función auxiliar para mostrar el mensaje directo en el formulario
+                const showError = (msg) => {
+                    errContainer.innerHTML = `
+                                    <div class="inline-alert">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10"></circle>
+                                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                                        </svg>
+                                        <span>${PS.esc(msg)}</span>
+                                    </div>
+                                `;
+                };
+
+                if (!u || !p) {
+                    if (!u) userInput.classList.add('bad');
+                    if (!p) passInput.classList.add('bad');
+                    showError('Ingresa usuario y contraseña.');
+                    return;
+                }
+
+                if (btn) btn.disabled = true;
+
+                try {
+                    const r = await PS.api('/api/login', { u, p });
+
+                    if (r.ok && r.data && r.data.ok) {
+                        window.location.replace(r.data.home || '/Dashboard');
+                    } else {
+                        userInput.classList.add('bad');
+                        passInput.classList.add('bad');
+                        showError(r.data?.error || 'Usuario o contraseña incorrectos.');
+                    }
+                } catch (err) {
+                    console.error("Error en login:", err);
+                    showError('No se pudo conectar con el servidor.');
+                } finally {
+                    if (btn) btn.disabled = false;
+                }
+            };
+    </script>
+    </body>
+</html>
