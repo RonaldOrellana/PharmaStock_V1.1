@@ -27,3 +27,16 @@ public class PagesController : Controller
     [Authorize(Roles = $"{A},{S}")] public IActionResult Reportes() => View();
     [Authorize(Roles = $"{A}")] public IActionResult Usuarios() => View();
 }
+public class SaleItemDto
+{
+    public int Lot { get; set; }
+    public int Q { get; set; }
+}
+
+public class SaleRequestDto
+{
+    public string Cli { get; set; }
+    public string Email { get; set; }          // Correo ingresado en el frontend
+    public bool SendEmail { get; set; }        // Checkbox del frontend
+    public List<SaleItemDto> Items { get; set; }
+}

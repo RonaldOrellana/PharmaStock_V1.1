@@ -4,6 +4,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Globalization;
+using System.Net;
+using System.Net.Mail;
 using System.Reflection.Emit;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -185,10 +188,20 @@ app.MapPost("/api/lots", async (LotReq r, Db d, HttpContext h) =>
 }).RequireAuthorization(Roles(A, S));
 
 // ---------- VENTAS (RF-05, RF-06: todos los roles). PEPS validado en servidor ----------
-app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h) =>
+app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h, IConfiguration config) =>
 {
     if (r.items == null || r.items.Count == 0) return Err("Agrega al menos un producto.");
     if (r.items.Any(i => i.q <= 0)) return Err("Cantidad inválida.");
+
+    // Correo del cliente (opcional): se envía salvo que el cliente haya desmarcado explícitamente el envío.
+    string toEmail = null;
+    if (!string.IsNullOrWhiteSpace(r.email) && r.sendEmail != false)
+    {
+        if (!System.Net.Mail.MailAddress.TryCreate(r.email.Trim(), out var ma))
+            return Err("El correo del cliente no es válido.");
+        toEmail = ma.Address;
+    }
+    var lines = new List<MailLine>();
 
     await using var tx = await d.Database.BeginTransactionAsync();
     var lotIds = r.items.Select(i => i.lot).Distinct().ToList();
@@ -213,6 +226,7 @@ app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h) =>
         l.Medicamento.StockActual -= i.q;
         var sub = l.Medicamento.PrecioVenta * i.q;
         v.Detalles.Add(new DetalleVenta { IdMedicamento = l.IdMedicamento, IdLote = l.IdLote, Cantidad = i.q, PrecioUnitario = l.Medicamento.PrecioVenta, Subtotal = sub });
+        lines.Add(new MailLine(l.Medicamento.NombreComercial, l.NumeroLote, i.q, l.Medicamento.PrecioVenta));
         d.MovimientosInventario.Add(new Movimiento { IdMedicamento = l.IdMedicamento, IdLote = l.IdLote, TipoMovimiento = "SALIDA", Cantidad = -i.q, Motivo = "Venta " + num, IdUsuario = v.IdUsuario });
         v.Subtotal += sub;
     }
@@ -227,7 +241,26 @@ app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h) =>
     d.Ventas.Add(v);
     await d.SaveChangesAsync();
     await tx.CommitAsync();
-    return Results.Ok(new { ok = true, num, sub = v.Subtotal, iva = v.IVA, total = v.Total });
+
+    // La venta ya está guardada: si el correo falla, NO se revierte; solo se informa al cajero.
+    bool mailSent = false; string mailError = null;
+    if (toEmail != null)
+    {
+        try
+        {
+            await InvoiceMailer.SendAsync(config, toEmail,
+                string.IsNullOrWhiteSpace(r.cli) ? "Consumidor final" : r.cli.Trim(),
+                num, v.FechaVenta, h.User.FindFirstValue(ClaimTypes.Name),
+                lines, v.Subtotal, v.IVA, v.Total);
+            mailSent = true;
+        }
+        catch (Exception ex)
+        {
+            mailError = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+            Console.WriteLine($"[Error SMTP] {toEmail}: {ex}");
+        }
+    }
+    return Results.Ok(new { ok = true, num, sub = v.Subtotal, iva = v.IVA, total = v.Total, mail = mailSent, mailError });
 }).RequireAuthorization();
 
 // ---------- AJUSTES (RF-08: Administrador y Supervisor, motivo obligatorio) ----------
@@ -324,7 +357,7 @@ record LoginReq(string u, string p);
 record MedReq(int uid, string code, string n, string cat, decimal price, int min);
 record LotReq(int med, int prov, string num, string exp, int q, int uid);
 record Item(int lot, int q);
-record SaleReq(int uid, string cli, List<Item> items);
+record SaleReq(int uid, string cli, string email, bool? sendEmail, List<Item> items);
 record AdjReq(int lot, int q, string why, int uid);
 record UserReq(string nombre, string u, string p, int idRol);
 
@@ -340,6 +373,7 @@ class Rol
 [Table("Usuarios")]
 class Usr
 {
+
     [Key] public int IdUsuario { get; set; }
     [MaxLength(150)] public string Nombre { get; set; }
     [MaxLength(50)] public string Usuario { get; set; }
@@ -483,4 +517,63 @@ class Db : DbContext
             .ToTable(tb => tb.HasTrigger("TR_Lotes_ActualizarStockMedicamento"));
     }
 
+}
+
+// ---------- ENVÍO DE FACTURA POR CORREO ----------
+record MailLine(string Producto, string Lote, int Cant, decimal PU);
+
+static class InvoiceMailer
+{
+    static string M(decimal v) => "$" + v.ToString("N2", CultureInfo.InvariantCulture);
+    static string H(string s) => WebUtility.HtmlEncode(s ?? "");
+
+    public static async Task SendAsync(IConfiguration cfg, string to, string cliente, string num,
+        DateTime fecha, string atendio, List<MailLine> lines, decimal sub, decimal iva, decimal total)
+    {
+        var user = cfg["Smtp:Username"];
+        var pass = cfg["Smtp:Password"];
+        if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
+            throw new InvalidOperationException("SMTP no configurado (appsettings.json > Smtp).");
+
+        Console.WriteLine($"[SMTP] usuario='{user}' | largo de clave={pass.Replace(" ", "").Length}");
+        var rows = new StringBuilder();
+        foreach (var l in lines)
+            rows.Append($@"<tr>
+<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0'>{H(l.Producto)}</td>
+<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0'>{H(l.Lote)}</td>
+<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right'>{l.Cant}</td>
+<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right'>{M(l.PU)}</td>
+<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right'>{M(l.PU * l.Cant)}</td></tr>");
+
+        var html = $@"
+<div style='font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:auto;color:#0f172a'>
+  <h2 style='color:#1e3a8a;margin-bottom:0'>PharmaStock · Factura {H(num)}</h2>
+  <p style='margin-top:4px;color:#475569'>Cliente: <b>{H(cliente)}</b><br/>
+     Fecha: {fecha:dd/MM/yyyy HH:mm}<br/>Atendió: {H(atendio)}</p>
+  <table style='width:100%;border-collapse:collapse;font-size:14px'>
+    <thead><tr style='background:#1e3a8a;color:#fff'>
+      <th style='padding:7px;text-align:left'>Producto</th><th style='padding:7px;text-align:left'>Lote</th>
+      <th style='padding:7px;text-align:right'>Cant.</th><th style='padding:7px;text-align:right'>P. unit.</th>
+      <th style='padding:7px;text-align:right'>Subtotal</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+  <p style='text-align:right;margin:12px 0 0'>Subtotal: {M(sub)}<br/>IVA 13%: {M(iva)}</p>
+  <p style='text-align:right;font-size:20px;font-weight:700;margin:4px 0'>TOTAL: {M(total)}</p>
+  <p style='color:#94a3b8;font-size:12px;margin-top:24px'>Gracias por su compra. Correo generado automáticamente.</p>
+</div>";
+
+        var msg = new MimeKit.MimeMessage();
+        msg.From.Add(new MimeKit.MailboxAddress(cfg["Smtp:SenderName"] ?? "PharmaStock", cfg["Smtp:SenderEmail"] ?? user));
+        msg.To.Add(MimeKit.MailboxAddress.Parse(to));
+        msg.Subject = $"Tu factura {num} - PharmaStock";
+        msg.Body = new MimeKit.BodyBuilder { HtmlBody = html }.ToMessageBody();
+
+        using var smtp = new MailKit.Net.Smtp.SmtpClient();
+        await smtp.ConnectAsync(cfg["Smtp:Server"] ?? "smtp.gmail.com",
+            int.Parse(cfg["Smtp:Port"] ?? "587"),
+            MailKit.Security.SecureSocketOptions.StartTls);
+        await smtp.AuthenticateAsync(user, pass.Replace(" ", ""));
+        await smtp.SendAsync(msg);
+        await smtp.DisconnectAsync(true);
+    }
 }

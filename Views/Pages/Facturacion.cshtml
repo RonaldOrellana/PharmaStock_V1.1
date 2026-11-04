@@ -1,94 +1,244 @@
-@{ ViewData["Title"] = "Punto de venta / Facturación"; }
-<div class="page-h"><div><h2>Punto de venta</h2><p>Política PEPS automática · bloqueo por lote vencido o existencias insuficientes</p></div></div>
-<div class="grid g-5-7">
-  <div class="card c-green">
-    <h3 data-i="plus"> Agregar producto</h3>
-    <div class="field"><label for="q">Buscar por nombre o código de barras</label><input id="q" placeholder="Escanee o escriba…" autocomplete="off" /></div>
-    <div class="field"><label for="med">Medicamento</label><select id="med"></select></div>
-    <div class="field" id="lotWrap"><label for="lot">Lote</label><select id="lot"></select></div>
-    <div class="field"><label for="qty">Cantidad</label><input id="qty" type="number" min="1" step="1" value="1" /></div>
-    <div id="msg"></div>
-    <button class="btn btn-green btn-block btn-lg" id="add" disabled data-i="cart"> Agregar al carrito</button>
-    <div id="info" class="mt"></div>
-  </div>
-  <div class="card c-blue">
-    <h3 data-i="cart"> Carrito</h3>
-    <div id="cartMsg"></div>
-    <div class="tw"><table><thead><tr><th>Producto</th><th>Lote</th><th class="num">Cant.</th><th class="num">P. unit.</th><th class="num">Subtotal</th><th></th></tr></thead><tbody id="cart"></tbody></table></div>
-    <div class="grid g2 mt"><div class="field"><label for="cli">Cliente (opcional)</label><input id="cli" placeholder="Consumidor final" /></div>
-      <div class="totals"><div><span>Subtotal</span><span id="sub">$0.00</span></div><div><span>IVA 13%</span><span id="iva">$0.00</span></div><div class="t"><span>Total</span><span id="tot">$0.00</span></div></div></div>
-    <button class="btn btn-green btn-lg btn-block mt" id="pay" disabled data-i="check"> Facturar y emitir comprobante</button>
-  </div>
-</div>
-@section Scripts {
-<script>
-PS.boot(S => {
-  const $ = id => document.getElementById(id), esc = PS.esc, vend = PS.role() === 'Vendedor';
-  let cart = [], plan = null;
-  if (vend) $('lotWrap').classList.add('hide');
-  const reserved = id => cart.filter(c => c.lot === id).reduce((s, c) => s + c.q, 0);
-  const avail = l => l.cur - reserved(l.id);
-  const fillMeds = () => {
-    const t = $('q').value.trim().toLowerCase();
-    const list = S.meds.filter(m => m.on && (!t || m.n.toLowerCase().includes(t) || m.code.toLowerCase().includes(t)));
-    $('med').innerHTML = '<option value="">— Seleccione —</option>' + list.map(m => `<option value="${m.id}">${esc(m.n)} (${m.code})</option>`).join('');
-    const exact = list.find(m => m.code.toLowerCase() === t); if (exact || list.length === 1 && t) $('med').value = (exact || list[0]).id;
-    fillLots(); check();
-  };
-  const fillLots = () => {
-    const m = S.med(+$('med').value);
-    $('lot').innerHTML = '<option value="">Automático · PEPS (recomendado)</option>' + (m ? m.lots.filter(l => l.cur > 0).map(l => `<option value="${l.id}">${esc(l.num)} · vence ${l.exp} · ${l.cur} u.${l.st.k === 'exp' ? ' · VENCIDO' : ''}</option>`).join('') : '');
-  };
-  const check = () => {
-    const m = S.med(+$('med').value), q = parseInt($('qty').value, 10), forced = +$('lot').value;
-    plan = null; $('info').innerHTML = '';
-    if (!m) { $('msg').innerHTML = ''; $('add').disabled = true; return; }
-    let html = '', block = false;
-    if (!Number.isInteger(q) || q <= 0) { html = PS.banner('amber', 'alert', 'Cantidad inválida', 'Ingrese un número entero mayor a 0.'); block = true; }
-    const valid = m.valid.filter(l => avail(l) > 0), expStock = m.lots.filter(l => l.st.k === 'exp' && l.cur > 0);
-    if (!block && forced) {
-      const l = S.lots.find(x => x.id === forced);
-      if (l.st.k === 'exp') { html = PS.banner('red', 'x', 'Lote vencido: venta bloqueada (RN-01)', `El lote <b>${esc(l.num)}</b> venció el ${PS.fmtDate(l.exp)}. No puede venderse; retírelo del anaquel.`); block = true; }
-      else if (valid[0] && valid[0].id !== l.id) { html = PS.banner('amber', 'alert', 'Debe aplicarse PEPS', `Primero debe salir el lote <b>${esc(valid[0].num)}</b> (vence ${PS.fmtDate(valid[0].exp)}).`); block = true; }
-      else if (avail(l) < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y el lote ${esc(l.num)} solo tiene ${Math.max(avail(l), 0)} disponibles.`); block = true; }
-      else plan = [{ l, q }];
-    } else if (!block) {
-      const total = valid.reduce((s, l) => s + avail(l), 0);
-      if (total < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y solo hay ${total} en lotes vigentes.`); block = true; }
-      else { let r = q; plan = []; for (const l of valid) { const t = Math.min(r, avail(l)); if (t > 0) plan.push({ l, q: t }); r -= t; if (r <= 0) break; }
-        html = PS.banner('green', 'check', 'PEPS sugerido', plan.map(p => `<b>${p.q}</b> u. del lote <b>${esc(p.l.num)}</b> (vence ${PS.fmtDate(p.l.exp)})`).join(' + ')); }
-    }
-    if (expStock.length) html += PS.banner('red', 'x', 'Lotes vencidos bloqueados (RN-01)', expStock.map(l => `${esc(l.num)} (${l.cur} u.)`).join(', ') + ' no se incluyen en la venta.');
-    $('msg').innerHTML = html; $('add').disabled = block || !plan;
-    if (!vend) {
-      const subs = S.meds.filter(x => x.on && x.cat === m.cat && x.id !== m.id && x.validStock > 0);
-      $('info').innerHTML = `<h3 style="font-size:.9rem">Lotes de ${esc(m.n)}</h3><div class="tw"><table><thead><tr><th>Lote</th><th>Vence</th><th class="num">Disp.</th><th>Estado</th></tr></thead><tbody>${m.lots.map(l => `<tr class="${l.st.k === 'exp' ? 'r-crit' : l.st.k === 'soon' ? 'r-warn' : ''}"><td>${esc(l.num)}${m.valid[0] && m.valid[0].id === l.id ? ' <span class="badge b-info">PEPS</span>' : ''}</td><td>${l.exp}</td><td class="num">${l.cur}</td><td>${PS.lotBadge(l)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-row">Sin lotes</td></tr>'}</tbody></table></div>
-        <p class="muted" style="margin:.7rem 0 .3rem">Sustitutos (${esc(m.cat)}):</p><div class="chips">${subs.map(s => `<span class="chip" data-s="${s.id}">${esc(s.n)} · ${s.validStock} u.</span>`).join('') || '<span class="muted">Sin sustitutos con existencias</span>'}</div>`;
-      document.querySelectorAll('[data-s]').forEach(c => c.onclick = () => { $('med').value = c.dataset.s; fillLots(); check(); });
-    }
-  };
-  const renderCart = () => {
-    let sub = 0, bad = false;
-    $('cart').innerHTML = cart.map((c, i) => { const l = S.lots.find(x => x.id === c.lot), p = l.m.price, st = p * c.q; sub += st; const issue = l.st.k === 'exp' || l.cur < c.q; bad = bad || issue;
-      return `<tr class="${issue ? 'r-crit' : ''}"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}<br>${PS.lotBadge(l)}</td><td class="num">${c.q}</td><td class="num">${PS.money(p)}</td><td class="num">${PS.money(st)}</td><td><button class="btn btn-red ib" data-d="${i}" title="Quitar">${PS.ico('trash')}</button></td></tr>`; }).join('') || '<tr><td colspan="6" class="empty-row">El carrito está vacío</td></tr>';
-    const iva = Math.round(sub * 13) / 100;
-    $('sub').textContent = PS.money(sub); $('iva').textContent = PS.money(iva); $('tot').textContent = PS.money(sub + iva);
-    $('cartMsg').innerHTML = bad ? PS.banner('red', 'x', 'Carrito bloqueado', 'Hay lotes vencidos o sin existencias. Quite esas líneas para poder facturar.') : '';
-    $('pay').disabled = bad || !cart.length;
-    document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { cart.splice(+b.dataset.d, 1); renderCart(); check(); });
-  };
-  $('q').oninput = fillMeds; $('med').onchange = () => { fillLots(); check(); }; $('lot').onchange = check; $('qty').oninput = check;
-  $('add').onclick = () => { plan.forEach(p => { const e = cart.find(c => c.lot === p.l.id); e ? e.q += p.q : cart.push({ lot: p.l.id, q: p.q }); }); PS.toast('success', 'Producto agregado'); $('qty').value = 1; renderCart(); check(); };
-  $('pay').onclick = async () => {
-    $('pay').disabled = true;
-    const snapshot = cart.map(c => { const l = S.lots.find(x => x.id === c.lot); return { n: l.m.n, lote: l.num, q: c.q, p: l.m.price }; }), cli = $('cli').value.trim() || 'Consumidor final';
-    const r = await PS.api('/api/sales', { cli: $('cli').value.trim(), items: cart.map(c => ({ lot: c.lot, q: c.q })) });
-    if (!r.ok) { PS.alertBox('Venta rechazada', r.data.error || 'No se pudo facturar.'); $('pay').disabled = false; return; }
-    const d = r.data, res = await Swal.fire({ icon: 'success', title: `Factura ${d.num}`, text: `Total cobrado: ${PS.money(d.total)}`, showDenyButton: true, confirmButtonText: 'Listo', denyButtonText: 'Imprimir comprobante PDF', confirmButtonColor: '#00a86b' });
-    if (res.isDenied) PS.printHtml('Comprobante ' + d.num, `<h2>PharmaStock · Comprobante ${d.num}</h2><p>Cliente: ${esc(cli)} · ${new Date().toLocaleString('es-SV')} · Atendió: ${esc(PS.user.name)}</p><table><tr><th>Producto</th><th>Lote</th><th class="n">Cant.</th><th class="n">P.U.</th><th class="n">Subtotal</th></tr>${snapshot.map(i => `<tr><td>${esc(i.n)}</td><td>${esc(i.lote)}</td><td class="n">${i.q}</td><td class="n">${PS.money(i.p)}</td><td class="n">${PS.money(i.p * i.q)}</td></tr>`).join('')}</table><p class="n">Subtotal ${PS.money(d.sub)} · IVA ${PS.money(d.iva)}</p><div class="t">TOTAL ${PS.money(d.total)}</div>`);
-    cart = []; $('cli').value = ''; await PS.reload(); fillMeds(); renderCart();
-  };
-  fillMeds(); renderCart();
-});
-</script>
+@{
+    ViewData["Title"] = "Punto de venta / Facturación";
 }
+
+<div class="page-h">
+    <div>
+        <h2>Punto de venta</h2>
+        <p>Política PEPS automática · bloqueo por lote vencido o existencias insuficientes</p>
+    </div>
+</div>
+
+<div class="grid g-5-7">
+    <!-- Sección Izquierda: Selección de Productos -->
+    <div class="card c-green">
+        <h3 data-i="plus"> Agregar producto</h3>
+        <div class="field">
+            <label for="q">Buscar por nombre o código de barras</label>
+            <input id="q" placeholder="Escanee o escriba…" autocomplete="off" />
+        </div>
+        <div class="field">
+            <label for="med">Medicamento</label>
+            <select id="med"></select>
+        </div>
+        <div class="field" id="lotWrap">
+            <label for="lot">Lote</label>
+            <select id="lot"></select>
+        </div>
+        <div class="field">
+            <label for="qty">Cantidad</label>
+            <input id="qty" type="number" min="1" step="1" value="1" />
+        </div>
+        <div id="msg"></div>
+        <button class="btn btn-green btn-block btn-lg" id="add" disabled data-i="cart"> Agregar al carrito</button>
+        <div id="info" class="mt"></div>
+    </div>
+
+    <!-- Sección Derecha: Carrito y Procesamiento de Pago -->
+    <div class="card c-blue">
+        <h3 data-i="cart"> Carrito</h3>
+        <div id="cartMsg"></div>
+        <div class="tw">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Producto</th>
+                        <th>Lote</th>
+                        <th class="num">Cant.</th>
+                        <th class="num">P. unit.</th>
+                        <th class="num">Subtotal</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="cart"></tbody>
+            </table>
+        </div>
+
+        <!-- Datos del Cliente y Opciones de Correo -->
+        <div class="grid g2 mt">
+            <div class="field">
+                <label for="cli">Cliente (opcional)</label>
+                <input id="cli" placeholder="Consumidor final" />
+            </div>
+            <div class="totals">
+                <div><span>Subtotal</span><span id="sub">$0.00</span></div>
+                <div><span>IVA 13%</span><span id="iva">$0.00</span></div>
+                <div class="t"><span>Total</span><span id="tot">$0.00</span></div>
+            </div>
+        </div>
+
+        <!-- Opciones para Envío de Factura por Correo -->
+        <div class="card mt" style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px;">
+            <div class="field">
+                <label for="emailCliente">Correo electrónico para factura (opcional)</label>
+                <input type="email" id="emailCliente" class="form-control" placeholder="ejemplo@correo.com" />
+            </div>
+            <div class="form-check mt-2">
+                <input type="checkbox" id="enviarCorreo" class="form-check-input" />
+                <label for="enviarCorreo" class="form-check-label">Enviar factura digital por correo</label>
+            </div>
+        </div>
+
+        <button class="btn btn-green btn-lg btn-block mt" id="pay" disabled data-i="check"> Facturar y emitir comprobante</button>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        PS.boot(S => {
+          const $ = id => document.getElementById(id), esc = PS.esc, vend = PS.role() === 'Vendedor';
+          let cart = [], plan = null;
+
+          if (vend) $('lotWrap').classList.add('hide');
+
+          const reserved = id => cart.filter(c => c.lot === id).reduce((s, c) => s + c.q, 0);
+          const avail = l => l.cur - reserved(l.id);
+
+          const fillMeds = () => {
+            const t = $('q').value.trim().toLowerCase();
+            const list = S.meds.filter(m => m.on && (!t || m.n.toLowerCase().includes(t) || m.code.toLowerCase().includes(t)));
+            $('med').innerHTML = '<option value="">— Seleccione —</option>' + list.map(m => `<option value="${m.id}">${esc(m.n)} (${m.code})</option>`).join('');
+            const exact = list.find(m => m.code.toLowerCase() === t);
+            if (exact || (list.length === 1 && t)) $('med').value = (exact || list[0]).id;
+            fillLots(); check();
+          };
+
+          const fillLots = () => {
+            const m = S.med(+$('med').value);
+            $('lot').innerHTML = '<option value="">Automático · PEPS (recomendado)</option>' + (m ? m.lots.filter(l => l.cur > 0).map(l => `<option value="${l.id}">${esc(l.num)} · vence ${l.exp} · ${l.cur} u.${l.st.k === 'exp' ? ' · VENCIDO' : ''}</option>`).join('') : '');
+          };
+
+          const check = () => {
+            const m = S.med(+$('med').value), q = parseInt($('qty').value, 10), forced = +$('lot').value;
+            plan = null; $('info').innerHTML = '';
+            if (!m) { $('msg').innerHTML = ''; $('add').disabled = true; return; }
+            let html = '', block = false;
+            if (!Number.isInteger(q) || q <= 0) { html = PS.banner('amber', 'alert', 'Cantidad inválida', 'Ingrese un número entero mayor a 0.'); block = true; }
+            const valid = m.valid.filter(l => avail(l) > 0), expStock = m.lots.filter(l => l.st.k === 'exp' && l.cur > 0);
+
+            if (!block && forced) {
+              const l = S.lots.find(x => x.id === forced);
+              if (l.st.k === 'exp') { html = PS.banner('red', 'x', 'Lote vencido: venta bloqueada (RN-01)', `El lote <b>${esc(l.num)}</b> venció el ${PS.fmtDate(l.exp)}. No puede venderse; retírelo del anaquel.`); block = true; }
+              else if (valid[0] && valid[0].id !== l.id) { html = PS.banner('amber', 'alert', 'Debe aplicarse PEPS', `Primero debe salir el lote <b>${esc(valid[0].num)}</b> (vence ${PS.fmtDate(valid[0].exp)}).`); block = true; }
+              else if (avail(l) < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y el lote ${esc(l.num)} solo tiene ${Math.max(avail(l), 0)} disponibles.`); block = true; }
+              else plan = [{ l, q }];
+            } else if (!block) {
+              const total = valid.reduce((s, l) => s + avail(l), 0);
+              if (total < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y solo hay ${total} en lotes vigentes.`); block = true; }
+              else {
+                let r = q; plan = [];
+                for (const l of valid) { const t = Math.min(r, avail(l)); if (t > 0) plan.push({ l, q: t }); r -= t; if (r <= 0) break; }
+                html = PS.banner('green', 'check', 'PEPS sugerido', plan.map(p => `<b>${p.q}</b> u. del lote <b>${esc(p.l.num)}</b> (vence ${PS.fmtDate(p.l.exp)})`).join(' + '));
+              }
+            }
+
+            if (expStock.length) html += PS.banner('red', 'x', 'Lotes vencidos bloqueados (RN-01)', expStock.map(l => `${esc(l.num)} (${l.cur} u.)`).join(', ') + ' no se incluyen en la venta.');
+            $('msg').innerHTML = html; $('add').disabled = block || !plan;
+
+            if (!vend) {
+              const subs = S.meds.filter(x => x.on && x.cat === m.cat && x.id !== m.id && x.validStock > 0);
+              $('info').innerHTML = `<h3 style="font-size:.9rem">Lotes de ${esc(m.n)}</h3><div class="tw"><table><thead><tr><th>Lote</th><th>Vence</th><th class="num">Disp.</th><th>Estado</th></tr></thead><tbody>${m.lots.map(l => `<tr class="${l.st.k === 'exp' ? 'r-crit' : l.st.k === 'soon' ? 'r-warn' : ''}"><td>${esc(l.num)}${m.valid[0] && m.valid[0].id === l.id ? ' <span class="badge b-info">PEPS</span>' : ''}</td><td>${l.exp}</td><td class="num">${l.cur}</td><td>${PS.lotBadge(l)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-row">Sin lotes</td></tr>'}</tbody></table></div>
+                <p class="muted" style="margin:.7rem 0 .3rem">Sustitutos (${esc(m.cat)}):</p><div class="chips">${subs.map(s => `<span class="chip" data-s="${s.id}">${esc(s.n)} · ${s.validStock} u.</span>`).join('') || '<span class="muted">Sin sustitutos con existencias</span>'}</div>`;
+              document.querySelectorAll('[data-s]').forEach(c => c.onclick = () => { $('med').value = c.dataset.s; fillLots(); check(); });
+            }
+          };
+
+          const renderCart = () => {
+            let sub = 0, bad = false;
+            $('cart').innerHTML = cart.map((c, i) => {
+              const l = S.lots.find(x => x.id === c.lot), p = l.m.price, st = p * c.q;
+              sub += st;
+              const issue = l.st.k === 'exp' || l.cur < c.q; bad = bad || issue;
+              return `<tr class="${issue ? 'r-crit' : ''}"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}<br>${PS.lotBadge(l)}</td><td class="num">${c.q}</td><td class="num">${PS.money(p)}</td><td class="num">${PS.money(st)}</td><td><button class="btn btn-red ib" data-d="${i}" title="Quitar">${PS.ico('trash')}</button></td></tr>`;
+            }).join('') || '<tr><td colspan="6" class="empty-row">El carrito está vacío</td></tr>';
+
+            const iva = Math.round(sub * 13) / 100;
+            $('sub').textContent = PS.money(sub);
+            $('iva').textContent = PS.money(iva);
+            $('tot').textContent = PS.money(sub + iva);
+            $('cartMsg').innerHTML = bad ? PS.banner('red', 'x', 'Carrito bloqueado', 'Hay lotes vencidos o sin existencias. Quite esas líneas para poder facturar.') : '';
+            $('pay').disabled = bad || !cart.length;
+            document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { cart.splice(+b.dataset.d, 1); renderCart(); check(); });
+          };
+
+          $('q').oninput = fillMeds;
+          $('med').onchange = () => { fillLots(); check(); };
+          $('lot').onchange = check;
+          $('qty').oninput = check;
+
+          $('add').onclick = () => {
+            plan.forEach(p => {
+              const e = cart.find(c => c.lot === p.l.id);
+              e ? e.q += p.q : cart.push({ lot: p.l.id, q: p.q });
+            });
+            PS.toast('success', 'Producto agregado');
+            $('qty').value = 1;
+            renderCart();
+            check();
+          };
+
+          $('pay').onclick = async () => {
+            $('pay').disabled = true;
+            const snapshot = cart.map(c => { const l = S.lots.find(x => x.id === c.lot); return { n: l.m.n, lote: l.num, q: c.q, p: l.m.price }; });
+            const cli = $('cli').value.trim() || 'Consumidor final';
+            const email = $('emailCliente').value.trim();
+            const enviarCorreo = $('enviarCorreo').checked;
+
+            // Validación básica de correo si la casilla está marcada
+            if (enviarCorreo && !email) {
+              PS.alertBox('Atención', 'Por favor ingrese un correo electrónico válido si desea enviar la factura por correo.');
+              $('pay').disabled = false;
+              return;
+            }
+
+            // Envío del payload actualizado a la API
+            const r = await PS.api('/api/sales', {
+              cli: cli,
+              email: email,
+              sendEmail: enviarCorreo,
+              items: cart.map(c => ({ lot: c.lot, q: c.q }))
+            });
+
+            if (!r.ok) {
+              PS.alertBox('Venta rechazada', r.data.error || 'No se pudo facturar.');
+              $('pay').disabled = false;
+              return;
+            }
+
+            const d = r.data;
+            let mensajeExito = `Total cobrado: ${PS.money(d.total)}`;
+            if (enviarCorreo && email) {
+              mensajeExito += `<br><small class="text-muted">Se envió una copia digital a <b>${esc(email)}</b></small>`;
+            }
+
+            const res = await Swal.fire({
+              icon: 'success',
+              title: `Factura ${d.num}`,
+              html: mensajeExito,
+              showDenyButton: true,
+              confirmButtonText: 'Listo',
+              denyButtonText: 'Imprimir comprobante PDF',
+              confirmButtonColor: '#00a86b'
+            });
+
+            if (res.isDenied) {
+              PS.printHtml('Comprobante ' + d.num, `<h2>PharmaStock · Comprobante ${d.num}</h2><p>Cliente: ${esc(cli)} · ${new Date().toLocaleString('es-SV')} · Atendió: ${esc(PS.user.name)}</p><table><tr><th>Producto</th><th>Lote</th><th class="n">Cant.</th><th class="n">P.U.</th><th class="n">Subtotal</th></tr>${snapshot.map(i => `<tr><td>${esc(i.n)}</td><td>${esc(i.lote)}</td><td class="n">${i.q}</td><td class="n">${PS.money(i.p)}</td><td class="n">${PS.money(i.p * i.q)}</td></tr>`).join('')}</table><p class="n">Subtotal ${PS.money(d.sub)} · IVA ${PS.money(d.iva)}</p><div class="t">TOTAL ${PS.money(d.total)}</div>`);
+            }
+
+            // Limpieza de campos al finalizar
+            cart = [];
+            $('cli').value = '';
+            $('emailCliente').value = '';
+            $('enviarCorreo').checked = false;
+            await PS.reload();
+            fillMeds();
+            renderCart();
+          };
+
+          fillMeds();
+          renderCart();
+        });
+    </script>
+}
+}
+
