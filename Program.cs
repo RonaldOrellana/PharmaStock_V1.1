@@ -16,6 +16,7 @@ var b = WebApplication.CreateBuilder(args);
 
 b.Services.AddDbContext<Db>(o => o.UseSqlServer(b.Configuration.GetConnectionString("PharmaStockConn")));
 b.Services.AddControllersWithViews();
+b.Services.AddSingleton<IDteService, DteService>();
 
 // Autenticación por cookie: protege vistas (MVC) y API. /api responde 401/403 en vez de redirigir.
 b.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o =>
@@ -188,7 +189,7 @@ app.MapPost("/api/lots", async (LotReq r, Db d, HttpContext h) =>
 }).RequireAuthorization(Roles(A, S));
 
 // ---------- VENTAS (RF-05, RF-06: todos los roles). PEPS validado en servidor ----------
-app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h, IConfiguration config) =>
+app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h, IConfiguration config, IDteService dteService) =>
 {
     if (r.items == null || r.items.Count == 0) return Err("Agrega al menos un producto.");
     if (r.items.Any(i => i.q <= 0)) return Err("Cantidad inválida.");
@@ -226,15 +227,19 @@ app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h, IConfiguration 
         l.Medicamento.StockActual -= i.q;
         var sub = l.Medicamento.PrecioVenta * i.q;
         v.Detalles.Add(new DetalleVenta { IdMedicamento = l.IdMedicamento, IdLote = l.IdLote, Cantidad = i.q, PrecioUnitario = l.Medicamento.PrecioVenta, Subtotal = sub });
-        lines.Add(new MailLine(l.Medicamento.NombreComercial, l.NumeroLote, i.q, l.Medicamento.PrecioVenta));
+
+        var codBarras = l.Medicamento.CodigoBarras ?? $"MED-{l.Medicamento.IdMedicamento:D3}";
+        lines.Add(new MailLine(codBarras, l.Medicamento.NombreComercial, l.NumeroLote, i.q, l.Medicamento.PrecioVenta));
+
         d.MovimientosInventario.Add(new Movimiento { IdMedicamento = l.IdMedicamento, IdLote = l.IdLote, TipoMovimiento = "SALIDA", Cantidad = -i.q, Motivo = "Venta " + num, IdUsuario = v.IdUsuario });
         v.Subtotal += sub;
     }
     v.IVA = Math.Round(v.Subtotal * 0.13m, 2);
     v.Total = v.Subtotal + v.IVA;
 
+    string clienteNombre = string.IsNullOrWhiteSpace(r.cli) ? "Consumidor final" : r.cli.Trim();
     if (!string.IsNullOrWhiteSpace(r.cli))
-        v.Cliente = await d.Clientes.FirstOrDefaultAsync(c => c.NombreCompleto == r.cli) ?? new Cliente { NombreCompleto = r.cli.Trim() };
+        v.Cliente = await d.Clientes.FirstOrDefaultAsync(c => c.NombreCompleto == r.cli) ?? new Cliente { NombreCompleto = clienteNombre };
     else
         v.IdCliente = (await d.Clientes.OrderBy(c => c.IdCliente).Select(c => c.IdCliente).FirstAsync());
 
@@ -242,16 +247,19 @@ app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h, IConfiguration 
     await d.SaveChangesAsync();
     await tx.CommitAsync();
 
+    // Procesamiento DTE (Generación de Código de Generación UUID y Sello)
+    var resDte = await dteService.GenerarYProcesarDteAsync(v, lines, toEmail, clienteNombre);
+
     // La venta ya está guardada: si el correo falla, NO se revierte; solo se informa al cajero.
     bool mailSent = false; string mailError = null;
     if (toEmail != null)
     {
         try
         {
-            await InvoiceMailer.SendAsync(config, toEmail,
-                string.IsNullOrWhiteSpace(r.cli) ? "Consumidor final" : r.cli.Trim(),
+            await InvoiceMailer.SendAsync(config, toEmail, clienteNombre,
                 num, v.FechaVenta, h.User.FindFirstValue(ClaimTypes.Name),
-                lines, v.Subtotal, v.IVA, v.Total);
+                lines, v.Subtotal, v.IVA, v.Total,
+                resDte.CodigoGeneracion, resDte.SelloRecibido);
             mailSent = true;
         }
         catch (Exception ex)
@@ -260,7 +268,20 @@ app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h, IConfiguration 
             Console.WriteLine($"[Error SMTP] {toEmail}: {ex}");
         }
     }
-    return Results.Ok(new { ok = true, num, sub = v.Subtotal, iva = v.IVA, total = v.Total, mail = mailSent, mailError });
+
+    return Results.Ok(new
+    {
+        ok = true,
+        num,
+        sub = v.Subtotal,
+        iva = v.IVA,
+        total = v.Total,
+        mail = mailSent,
+        dte = resDte.Exito,
+        codigoGeneracion = resDte.CodigoGeneracion,
+        sello = resDte.SelloRecibido,
+        mailError
+    });
 }).RequireAuthorization();
 
 // ---------- AJUSTES (RF-08: Administrador y Supervisor, motivo obligatorio) ----------
@@ -514,8 +535,8 @@ class Db : DbContext
     }
 }
 
-// ---------- ENVÍO DE FACTURA POR CORREO ----------
-record MailLine(string Producto, string Lote, int Cant, decimal PU);
+// ---------- ENVÍO DE FACTURA POR CORREO CON FORMATO DTE, CÓDIGO DE BARRAS Y ADJUNTO ----------
+record MailLine(string Codigo, string Producto, string Lote, int Cant, decimal PU);
 
 static class InvoiceMailer
 {
@@ -523,48 +544,156 @@ static class InvoiceMailer
     static string H(string s) => WebUtility.HtmlEncode(s ?? "");
 
     public static async Task SendAsync(IConfiguration cfg, string to, string cliente, string num,
-        DateTime fecha, string atendio, List<MailLine> lines, decimal sub, decimal iva, decimal total)
+        DateTime fecha, string atendio, List<MailLine> lines, decimal sub, decimal iva, decimal total,
+        string codigoGen = null, string sello = null)
     {
         var user = cfg["Smtp:Username"];
         var pass = cfg["Smtp:Password"];
         if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
             throw new InvalidOperationException("SMTP no configurado (appsettings.json > Smtp).");
 
-        // Limpia cualquier espacio accidental de la clave de aplicación de Gmail (ej: "ulgv sckc opdn ahjr")
         var cleanPass = pass.Replace(" ", "").Trim();
 
         Console.WriteLine($"[SMTP] usuario='{user}' | largo de clave={cleanPass.Length}");
         var rows = new StringBuilder();
+        int index = 0;
         foreach (var l in lines)
-            rows.Append($@"<tr>
-<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0'>{H(l.Producto)}</td>
-<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0'>{H(l.Lote)}</td>
-<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right'>{l.Cant}</td>
-<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right'>{M(l.PU)}</td>
-<td style='padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right'>{M(l.PU * l.Cant)}</td></tr>");
+        {
+            var bg = index % 2 == 0 ? "#ffffff" : "#f8fafc";
+            rows.Append($@"<tr style='background-color:{bg}'>
+<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:12px;color:#475569'>{H(l.Codigo)}</td>
+<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#0f172a'>{H(l.Producto)}</td>
+<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#64748b'>{H(l.Lote)}</td>
+<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:600'>{l.Cant}</td>
+<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:right;color:#334155'>{M(l.PU)}</td>
+<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;color:#0f172a'>{M(l.PU * l.Cant)}</td></tr>");
+            index++;
+        }
 
-        var html = $@"
-<div style='font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:auto;color:#0f172a'>
-  <h2 style='color:#1e3a8a;margin-bottom:0'>PharmaStock · Factura {H(num)}</h2>
-  <p style='margin-top:4px;color:#475569'>Cliente: <b>{H(cliente)}</b><br/>
-     Fecha: {fecha:dd/MM/yyyy HH:mm}<br/>Atendió: {H(atendio)}</p>
-  <table style='width:100%;border-collapse:collapse;font-size:14px'>
-    <thead><tr style='background:#1e3a8a;color:#fff'>
-      <th style='padding:7px;text-align:left'>Producto</th><th style='padding:7px;text-align:left'>Lote</th>
-      <th style='padding:7px;text-align:right'>Cant.</th><th style='padding:7px;text-align:right'>P. unit.</th>
-      <th style='padding:7px;text-align:right'>Subtotal</th></tr></thead>
-    <tbody>{rows}</tbody>
-  </table>
-  <p style='text-align:right;margin:12px 0 0'>Subtotal: {M(sub)}<br/>IVA 13%: {M(iva)}</p>
-  <p style='text-align:right;font-size:20px;font-weight:700;margin:4px 0'>TOTAL: {M(total)}</p>
-  <p style='color:#94a3b8;font-size:12px;margin-top:24px'>Gracias por su compra. Correo generado automáticamente.</p>
+        // Generación dinámica de la imagen del CÓDIGO DE BARRAS (Code 128)
+        string barcodeUrl = !string.IsNullOrWhiteSpace(codigoGen)
+            ? $"https://barcodeapi.org/api/128/{WebUtility.UrlEncode(codigoGen)}"
+            : $"https://barcodeapi.org/api/128/{WebUtility.UrlEncode(num)}";
+
+        string bloqDte = string.IsNullOrWhiteSpace(codigoGen) ? "" : $@"
+<div style='background-color:#f0f9ff;border:1px solid #bae6fd;border-left:4px solid #0284c7;padding:16px;border-radius:8px;margin:18px 0;text-align:center;'>
+  <div style='font-size:12px;font-weight:700;color:#0369a1;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;'>
+    📄 DOCUMENTO TRIBUTARIO ELECTRÓNICO (DTE - TIPO 01)
+  </div>
+
+  <div style='background:#ffffff;padding:10px;border-radius:6px;display:inline-block;margin:6px 0;border:1px solid #e2e8f0;'>
+    <img src='{barcodeUrl}' alt='Código de Barras DTE' style='max-width:100%;height:60px;display:block;margin:0 auto;' />
+    <span style='font-family:monospace;font-size:11px;color:#475569;margin-top:4px;display:block;'>{H(codigoGen)}</span>
+  </div>
+
+  <div style='font-size:11px;color:#64748b;margin-top:6px;word-break:break-all;'>
+    <b>Sello de Recepción:</b> <span style='font-family:monospace;color:#0f172a;'>{H(sello)}</span>
+  </div>
 </div>";
 
+        var html = $@"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Factura Electrónica DTE {H(num)}</title>
+</head>
+<body style='margin:0;padding:20px;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,""Segoe UI"",Roboto,Helvetica,Arial,sans-serif;'>
+  <div style='max-width:680px;margin:0 auto;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>
+    
+    <!-- Header -->
+    <div style='background:linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);padding:28px 24px;color:#ffffff;'>
+      <table style='width:100%;border-collapse:collapse;'>
+        <tr>
+          <td>
+            <h1 style='margin:0;font-size:24px;font-weight:800;color:#ffffff;'>PharmaStock</h1>
+            <p style='margin:4px 0 0;font-size:13px;color:#93c5fd;text-transform:uppercase;'>Comprobante Digital DTE</p>
+          </td>
+          <td style='text-align:right;vertical-align:top;'>
+            <span style='background-color:rgba(255,255,255,0.15);padding:6px 12px;border-radius:20px;font-size:13px;font-weight:600;'>{H(num)}</span>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Datos generales -->
+    <div style='padding:16px 24px;background-color:#fafafa;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569;'>
+      <table style='width:100%;border-collapse:collapse;'>
+        <tr>
+          <td style='padding-bottom:4px;'><b>Cliente:</b> <span style='color:#0f172a;'>{H(cliente)}</span></td>
+          <td style='padding-bottom:4px;text-align:right;'><b>Fecha:</b> <span style='color:#0f172a;'>{fecha:dd/MM/yyyy HH:mm}</span></td>
+        </tr>
+        <tr>
+          <td><b>Atendió:</b> <span style='color:#0f172a;'>{H(atendio)}</span></td>
+          <td style='text-align:right;'><b>Estado:</b> <span style='color:#16a34a;font-weight:600;'>● EMITIDA</span></td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Cuerpo del correo -->
+    <div style='padding:24px;'>
+      {bloqDte}
+
+      <!-- Tabla de Productos -->
+      <div style='overflow-x:auto;margin-top:16px;'>
+        <table style='width:100%;border-collapse:collapse;font-size:13px;'>
+          <thead>
+            <tr style='background-color:#1e3a8a;color:#ffffff;'>
+              <th style='padding:10px 12px;text-align:left;border-top-left-radius:6px;'>Código</th>
+              <th style='padding:10px 12px;text-align:left;'>Producto</th>
+              <th style='padding:10px 12px;text-align:left;'>Lote</th>
+              <th style='padding:10px 12px;text-align:center;'>Cant.</th>
+              <th style='padding:10px 12px;text-align:right;'>P. Unit.</th>
+              <th style='padding:10px 12px;text-align:right;border-top-right-radius:6px;'>Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Resumen de Totales -->
+      <div style='margin-top:20px;'>
+        <table style='width:240px;margin-left:auto;border-collapse:collapse;font-size:13px;'>
+          <tr>
+            <td style='padding:6px 0;color:#64748b;'>Subtotal:</td>
+            <td style='padding:6px 0;text-align:right;font-weight:600;color:#334155;'>{M(sub)}</td>
+          </tr>
+          <tr>
+            <td style='padding:6px 0;color:#64748b;'>IVA (13%):</td>
+            <td style='padding:6px 0;text-align:right;font-weight:600;color:#334155;'>{M(iva)}</td>
+          </tr>
+          <tr style='border-top:2px solid #e2e8f0;'>
+            <td style='padding:10px 0 0;font-size:16px;font-weight:700;color:#1e3a8a;'>TOTAL:</td>
+            <td style='padding:10px 0 0;text-align:right;font-size:18px;font-weight:800;color:#1e3a8a;'>{M(total)}</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style='background-color:#f8fafc;padding:16px 24px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#64748b;'>
+      📎 <b>Comprobante de Facturación Electrónica DTE adjunto y en línea.</b><br/>
+      Gracias por su compra en <b>PharmaStock</b>.
+    </div>
+
+  </div>
+</body>
+</html>";
+
+        var builder = new MimeKit.BodyBuilder { HtmlBody = html };
+
+        // Adjuntar como documento descargable interactivo de la factura
+        byte[] docBytes = Encoding.UTF8.GetBytes(html);
+        builder.Attachments.Add($"Comprobante_Factura_{num}.html", docBytes, MimeKit.ContentType.Parse("text/html"));
+
         var msg = new MimeKit.MimeMessage();
-        msg.From.Add(new MimeKit.MailboxAddress(cfg["Smtp:SenderName"] ?? "PharmaStock", cfg["Smtp:SenderEmail"] ?? user));
+        msg.From.Add(new MimeKit.MailboxAddress(cfg["Smtp:SenderName"] ?? "PharmaStock DTE", cfg["Smtp:SenderEmail"] ?? user));
         msg.To.Add(MimeKit.MailboxAddress.Parse(to));
-        msg.Subject = $"Tu factura {num} - PharmaStock";
-        msg.Body = new MimeKit.BodyBuilder { HtmlBody = html }.ToMessageBody();
+        msg.Subject = $"Factura Electrónica DTE {num} - PharmaStock";
+        msg.Body = builder.ToMessageBody();
 
         using var smtp = new MailKit.Net.Smtp.SmtpClient();
         await smtp.ConnectAsync(cfg["Smtp:Server"] ?? "smtp.gmail.com",
