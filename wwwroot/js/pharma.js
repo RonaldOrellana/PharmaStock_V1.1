@@ -22,7 +22,7 @@ const PS = (() => {
         pencil: '<path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
         trash: '<path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
         print: '<path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/>',
-        eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+        eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
         alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/>',
         clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
         logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
@@ -39,7 +39,6 @@ const PS = (() => {
     const iso = d => { d = new Date(d); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
     const daysTo = exp => Math.round((midnight(exp + 'T00:00:00') - midnight()) / 864e5);
 
-    // 💡 Parseo de fechas mejorado (Soporta ISO y cadenas legibles)
     const parseMov = s => {
         if (!s) return new Date(0);
         if (s.includes('T') || s.includes('-')) return new Date(s);
@@ -145,7 +144,6 @@ async function cargarUsuarios() {
         if (!res.ok) return;
         let users = await res.json();
 
-        // Ordenar por ID ascendente
         users.sort((a, b) => a.id - b.id);
 
         tbody.innerHTML = users.map(u => {
@@ -197,7 +195,6 @@ async function guardarUsuario(e) {
         return;
     }
 
-    // Limpiar clases de error previas
     [nombreEl, userEl, claveEl, rolEl].forEach(el => el.classList.remove('is-invalid'));
 
     const nombre = nombreEl.value.trim();
@@ -205,11 +202,9 @@ async function guardarUsuario(e) {
     const clave = claveEl.value;
     const idRol = parseInt(rolEl.value, 10) || 0;
 
-    // --- REGEX & REGLAS DE VALIDACIÓN ---
     const regexNombre = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]{3,150}$/;
     const regexUsuario = /^[a-zA-Z0-9_]{6,50}$/;
 
-    // 1. Validar Nombre Completo
     if (!nombre) {
         nombreEl.classList.add('is-invalid');
         PS.alertBox('Campo requerido', 'Ingresa el nombre completo del usuario.', 'warning');
@@ -223,7 +218,6 @@ async function guardarUsuario(e) {
         return;
     }
 
-    // 2. Validar Nombre de Usuario (Mínimo 6 caracteres)
     if (!usuario) {
         userEl.classList.add('is-invalid');
         PS.alertBox('Campo requerido', 'Ingresa un nombre de usuario.', 'warning');
@@ -237,7 +231,6 @@ async function guardarUsuario(e) {
         return;
     }
 
-    // 3. Validar Contraseña
     if (!clave) {
         claveEl.classList.add('is-invalid');
         PS.alertBox('Campo requerido', 'Ingresa la contraseña inicial.', 'warning');
@@ -251,7 +244,6 @@ async function guardarUsuario(e) {
         return;
     }
 
-    // 4. Validar Rol
     if (idRol <= 0) {
         rolEl.classList.add('is-invalid');
         PS.alertBox('Rol requerido', 'Selecciona un rol válido para el usuario.', 'warning');
@@ -268,14 +260,12 @@ async function guardarUsuario(e) {
         if (res.ok && (res.data?.ok === true || res.data?.id > 0)) {
             PS.toast('success', 'Usuario registrado con éxito');
 
-            // Resetear campos
             nombreEl.value = '';
             userEl.value = '';
             claveEl.value = '';
             rolEl.selectedIndex = 0;
             [nombreEl, userEl, claveEl, rolEl].forEach(el => el.classList.remove('is-invalid'));
 
-            // Cerrar modal automáticamente
             if (typeof cerrarModalUsuario === 'function') {
                 cerrarModalUsuario();
             } else {
@@ -372,3 +362,83 @@ async function aplicarAjuste(e) {
         PS.alertBox('Error', 'Fallo al comunicarse con el servidor.', 'error');
     }
 }
+
+// -----------------------------------------------------------------------
+// 📧 ENVIAR VENTA AL BACKEND Y FACTURAR CON ENVÍO DE CORREO
+// -----------------------------------------------------------------------
+async function realizarVenta(e) {
+    if (e) e.preventDefault();
+
+    // 1. Obtener elementos de la vista
+    const emailInput = document.querySelector('input[type="email"]') || document.getElementById('correoCliente');
+    const chkEmail = document.querySelector('input[type="checkbox"]') || document.getElementById('chkEnviarCorreo');
+    const clienteInput = document.getElementById('nombreCliente');
+
+    const email = emailInput ? emailInput.value.trim() : "";
+    const sendEmail = chkEmail ? chkEmail.checked : false;
+    const cli = clienteInput ? clienteInput.value.trim() : "Consumidor final";
+
+    // 2. Extraer ítems agregados al carrito
+    const items = [];
+    const rows = document.querySelectorAll('tr[data-lote], tr[data-lot-id], #tablaCarrito tbody tr');
+    rows.forEach(row => {
+        const lotId = row.dataset.lote || row.dataset.lotId;
+        const cant = row.dataset.cant || row.querySelector('.cant-input, input[type="number"]')?.value || 1;
+        if (lotId) {
+            items.push({ lot: parseInt(lotId, 10), q: parseInt(cant, 10) });
+        }
+    });
+
+    if (items.length === 0) {
+        PS.alertBox('Carrito vacío', 'Agrega al menos un producto al carrito antes de facturar.', 'warning');
+        return;
+    }
+
+    if (sendEmail && !email) {
+        PS.alertBox('Correo requerido', 'Ingresa una dirección de correo si la casilla de envío está activada.', 'warning');
+        return;
+    }
+
+    const payload = {
+        cli: cli,
+        email: email,
+        sendEmail: sendEmail,
+        items: items
+    };
+
+    try {
+        const res = await PS.api('/api/sales', payload);
+
+        if (res.ok && res.data?.ok) {
+            let infoMsg = `Factura ${res.data.num} emitida correctamente. Total: $${res.data.total.toFixed(2)}`;
+
+            if (res.data.mail) {
+                PS.toast('success', '¡Factura enviada al correo correctamente!');
+            } else if (res.data.mailError) {
+                infoMsg += `\n\n(La venta se realizó, pero no se pudo enviar el correo: ${res.data.mailError})`;
+            }
+
+            await Swal.fire({
+                icon: 'success',
+                title: 'Venta exitosa',
+                text: infoMsg,
+                confirmButtonColor: '#1e3a8a'
+            });
+
+            location.reload();
+        } else {
+            PS.alertBox('Error al facturar', res.data?.error || 'No se pudo procesar la venta.', 'error');
+        }
+    } catch (err) {
+        console.error("Error al procesar la venta:", err);
+        PS.alertBox('Error de conexión', 'Ocurrió un error al contactar al servidor.', 'error');
+    }
+}
+
+// Escuchar el clic en el botón de facturar
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('#btnFacturar, .btn-facturar, button[type="submit"]');
+    if (btn && document.querySelector('input[type="email"], #correoCliente')) {
+        realizarVenta(e);
+    }
+});

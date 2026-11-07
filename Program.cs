@@ -296,8 +296,6 @@ app.MapGet("/api/users", async (Db d) =>
     return Results.Ok(usuarios);
 }).RequireAuthorization(Roles(A));
 
-
-
 app.MapPost("/api/users", async (UserReq r, Db d) =>
 {
     if (string.IsNullOrWhiteSpace(r.nombre)) return Err("El nombre completo es obligatorio.");
@@ -373,7 +371,6 @@ class Rol
 [Table("Usuarios")]
 class Usr
 {
-
     [Key] public int IdUsuario { get; set; }
     [MaxLength(150)] public string Nombre { get; set; }
     [MaxLength(50)] public string Usuario { get; set; }
@@ -512,11 +509,9 @@ class Db : DbContext
         mb.Entity<Usr>().HasIndex(u => u.Usuario).IsUnique();
         mb.Entity<Medicamento>().HasIndex(m => m.CodigoBarras).IsUnique();
         mb.Entity<Venta>().HasIndex(v => v.NumeroFactura).IsUnique();
-        // 💡 Indicar a EF Core que la tabla Lotes maneja Triggers en SQL Server
         mb.Entity<Lote>()
             .ToTable(tb => tb.HasTrigger("TR_Lotes_ActualizarStockMedicamento"));
     }
-
 }
 
 // ---------- ENVÍO DE FACTURA POR CORREO ----------
@@ -535,7 +530,10 @@ static class InvoiceMailer
         if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
             throw new InvalidOperationException("SMTP no configurado (appsettings.json > Smtp).");
 
-        Console.WriteLine($"[SMTP] usuario='{user}' | largo de clave={pass.Replace(" ", "").Length}");
+        // Limpia cualquier espacio accidental de la clave de aplicación de Gmail (ej: "ulgv sckc opdn ahjr")
+        var cleanPass = pass.Replace(" ", "").Trim();
+
+        Console.WriteLine($"[SMTP] usuario='{user}' | largo de clave={cleanPass.Length}");
         var rows = new StringBuilder();
         foreach (var l in lines)
             rows.Append($@"<tr>
@@ -572,7 +570,7 @@ static class InvoiceMailer
         await smtp.ConnectAsync(cfg["Smtp:Server"] ?? "smtp.gmail.com",
             int.Parse(cfg["Smtp:Port"] ?? "587"),
             MailKit.Security.SecureSocketOptions.StartTls);
-        await smtp.AuthenticateAsync(user, pass.Replace(" ", ""));
+        await smtp.AuthenticateAsync(user, cleanPass);
         await smtp.SendAsync(msg);
         await smtp.DisconnectAsync(true);
     }
