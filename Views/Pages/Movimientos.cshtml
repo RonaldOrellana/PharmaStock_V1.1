@@ -17,7 +17,7 @@
 <script>
 PS.boot(S => {
   const $ = id => document.getElementById(id), esc = PS.esc;
-  const lots = () => S.lots.filter(l => l.cur > 0 || true);
+          const lots = () => S.lots.filter(l => l.cur > 0);
   $('lot').innerHTML = '<option value="">— Seleccione —</option>' + lots().map(l => `<option value="${l.id}">${esc(l.m.n)} · ${esc(l.num)} · ${l.cur} u.${l.st.k === 'exp' ? ' · VENCIDO' : ''}</option>`).join('');
   const hint = () => $('qh').textContent = $('tipo').value === 'Conteo físico' ? 'Positivo suma, negativo resta.' : 'Ingrese la cantidad perdida (número positivo).';
   $('tipo').onchange = hint; hint();
