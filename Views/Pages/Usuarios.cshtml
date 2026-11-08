@@ -101,22 +101,99 @@
 
     </div>
 </div>
+<!-- MODAL RESTABLECER CONTRASEÑA -->
+<div id="modalResetPassword" class="ps-modal-overlay">
+    <div class="ps-modal-card">
+
+        <div class="ps-modal-header">
+            <div>
+                <h5 class="ps-modal-title">
+                    Restablecer contraseña
+                </h5>
+                <small class="ps-modal-subtitle">
+                    Administrar las credenciales del usuario
+                </small>
+            </div>
+
+            <button type="button"
+                    class="btn-close"
+                    onclick="cerrarModalReset()">
+            </button>
+        </div>
+
+        <div class="ps-modal-body">
+
+            <input type="hidden" id="resetUserId">
+
+            <div class="mb-3">
+                <label class="ps-label">Usuario seleccionado</label>
+                <input id="resetUserName"
+                       class="ps-input"
+                       readonly>
+            </div>
+
+            <div class="mb-3">
+                <label class="ps-label">
+                    Nueva contraseña manual
+                </label>
+
+                <input type="password"
+                       id="resetPassword"
+                       class="ps-input"
+                       minlength="8"
+                       autocomplete="new-password"
+                       placeholder="Mínimo 8 caracteres">
+
+                <small class="text-muted">
+                    O utiliza la generación automática.
+                </small>
+            </div>
+
+        </div>
+
+        <div class="ps-modal-footer">
+            <button type="button"
+                    class="btn btn-light"
+                    onclick="cerrarModalReset()">
+                Cancelar
+            </button>
+
+            <button type="button"
+                    class="btn btn-primary"
+                    onclick="guardarPasswordManual()">
+                Guardar contraseña
+            </button>
+
+            <button type="button"
+                    class="btn btn-success"
+                    onclick="generarPasswordAutomatica()">
+                Generar automática
+            </button>
+        </div>
+
+    </div>
+</div>
+
 
 @section Scripts {
     <script>
-        function abrirModalUsuario() {
-            const modal = document.getElementById('modalUsuarioOverlay');
-            if (modal) modal.classList.add('active');
-        }
+        window.abrirModalUsuario = function () {
+            document.getElementById('modalUsuarioOverlay')
+                ?.classList.add('active');
+        };
 
-        function cerrarModalUsuario() {
-            const modal = document.getElementById('modalUsuarioOverlay');
-            if (modal) modal.classList.remove('active');
+        window.cerrarModalUsuario = function () {
+            document.getElementById('modalUsuarioOverlay')
+                ?.classList.remove('active');
 
-            const inputs = document.querySelectorAll('#formUsuario .ps-input');
-            inputs.forEach(i => i.classList.remove('is-invalid'));
-        }
+            document.querySelectorAll(
+                '#formUsuario .ps-input'
+            ).forEach(i => i.classList.remove('is-invalid'));
+        };
 
-        document.addEventListener('DOMContentLoaded', cargarUsuarios);
+        document.addEventListener('DOMContentLoaded', function () {
+            cargarUsuarios();
+        });
     </script>
 }
+

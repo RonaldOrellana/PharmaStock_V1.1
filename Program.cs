@@ -346,6 +346,73 @@ app.MapPost("/api/users", async (UserReq r, Db d) =>
     return Results.Ok(new { ok = true, id = nuevoUsuario.IdUsuario });
 }).RequireAuthorization(Roles(A));
 
+// ---------- RESTABLECER CONTRASEÑAS (SOLO ADMINISTRADOR) ----------
+app.MapPost("/api/users/{id}/reset-password",
+    async (int id, PasswordResetReq r, Db d) =>
+    {
+        var usuario = await d.Usuarios.FindAsync(id);
+
+        if (usuario == null)
+            return Results.NotFound(new
+            {
+                ok = false,
+                error = "El usuario no existe."
+            });
+
+        string nuevaClave;
+
+        if (r.generar)
+        {
+            // Generar contraseña temporal criptográficamente segura.
+            const string caracteres =
+                "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+
+            var resultado = new StringBuilder(14);
+
+            for (int i = 0; i < 14; i++)
+            {
+                int indice = RandomNumberGenerator.GetInt32(caracteres.Length);
+                resultado.Append(caracteres[indice]);
+            }
+
+            nuevaClave = resultado.ToString();
+        }
+        else
+        {
+            nuevaClave = r.p ?? "";
+
+            if (nuevaClave.Length < 8)
+                return Results.BadRequest(new
+                {
+                    ok = false,
+                    error = "La contraseña debe tener al menos 8 caracteres."
+                });
+
+            if (string.IsNullOrWhiteSpace(nuevaClave))
+                return Results.BadRequest(new
+                {
+                    ok = false,
+                    error = "Debes ingresar una contraseña."
+                });
+        }
+
+        // Mantener compatibilidad con el login actual.
+        usuario.ClaveHash = HashSql(nuevaClave);
+
+        await d.SaveChangesAsync();
+
+        // La contraseña se devuelve una sola vez para entregarla al usuario.
+        return Results.Ok(new
+        {
+            ok = true,
+            nombre = usuario.Nombre,
+            usuario = usuario.Usuario,
+            password = nuevaClave,
+            mensaje = "Contraseña restablecida correctamente."
+        });
+
+    }).RequireAuthorization(Roles(A));
+
 app.MapPost("/api/users/{id}/toggle", async (int id, Db d) =>
 {
     var u = await d.Usuarios.FindAsync(id);
@@ -379,6 +446,9 @@ record Item(int lot, int q);
 record SaleReq(int uid, string cli, string email, bool? sendEmail, List<Item> items);
 record AdjReq(int lot, int q, string why, int uid);
 record UserReq(string nombre, string u, string p, int idRol);
+record PasswordResetReq(string? p, bool generar);
+
+
 
 // ---------- ENTIDADES ----------
 [Table("Roles")]

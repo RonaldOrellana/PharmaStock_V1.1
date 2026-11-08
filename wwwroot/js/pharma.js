@@ -135,47 +135,133 @@ const PS = (() => {
 })();
 
 // --- GESTIÓN DE USUARIOS (Solo Administrador) ---
+
 async function cargarUsuarios() {
     const tbody = document.getElementById('tbodyUsuarios');
-    if (!tbody) return;
+
+    if (!tbody) {
+        console.error('No existe tbodyUsuarios en la vista.');
+        return;
+    }
+
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="6" class="text-center p-4">
+                Cargando usuarios...
+            </td>
+        </tr>`;
 
     try {
-        const res = await fetch('/api/users', { credentials: 'same-origin' });
-        if (!res.ok) return;
-        let users = await res.json();
+        const respuesta = await fetch('/api/users', {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
 
-        users.sort((a, b) => a.id - b.id);
+        console.log('Estado API usuarios:', respuesta.status);
+
+        if (!respuesta.ok) {
+            const error = await respuesta.text();
+
+            console.error('Error API:', error);
+
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="text-center text-danger p-4">
+                        Error al consultar usuarios.
+                        Código HTTP: ${respuesta.status}
+                    </td>
+                </tr>`;
+
+            return;
+        }
+
+        const users = await respuesta.json();
+
+        console.log('Usuarios recibidos:', users);
+
+        if (!Array.isArray(users) || users.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="text-center p-4">
+                        No hay usuarios registrados.
+                    </td>
+                </tr>`;
+            return;
+        }
+
+
+        window.usuariosCache = users;
 
         tbody.innerHTML = users.map(u => {
-            const nombre = u.nombre ?? u.name ?? 'Sin nombre';
-            const usuario = u.usuario ?? u.username ?? 'Sin usuario';
-            const rol = u.rol ?? u.role ?? 'Sin rol';
-            const estado = u.estado ?? u.active ?? false;
+            const nombre = u.name ?? u.nombre ?? 'Sin nombre';
+            const usuario = u.username ?? u.usuario ?? 'Sin usuario';
+            const rol = u.role ?? u.rol ?? 'Sin rol';
+            const estado = u.active ?? u.estado ?? false;
 
             return `
-        <tr class="border-bottom border-light">
-          <td class="ps-4 fw-bold text-secondary">#${u.id}</td>
-          <td class="fw-semibold text-dark">${PS.esc(nombre)}</td>
-          <td><code class="px-2 py-1 bg-light text-primary rounded border">${PS.esc(usuario)}</code></td>
-          <td><span class="ps-badge-role">${PS.esc(rol)}</span></td>
-          <td>
-            <span class="${estado ? 'ps-badge-active' : 'ps-badge-inactive'}">
-              ${estado ? '● Activo' : '○ Inactivo'}
-            </span>
-          </td>
-          <td class="pe-4 text-end">
-            <button class="btn btn-sm ${estado ? 'btn-outline-danger' : 'btn-outline-success'} rounded-2 px-3 fw-semibold" 
-                    onclick="toggleUsuario(${u.id}, ${estado})">
-              ${estado ? 'Desactivar' : 'Activar'}
-            </button>
-          </td>
-        </tr>
-      `;
+                <tr class="border-bottom border-light">
+                    <td class="ps-4 fw-bold text-secondary">
+                        #${u.id}
+                    </td>
+
+                    <td class="fw-semibold text-dark">
+                        ${PS.esc(nombre)}
+                    </td>
+
+                    <td>
+                        <code>${PS.esc(usuario)}</code>
+                    </td>
+
+                    <td>
+                        <span class="ps-badge-role">
+                            ${PS.esc(rol)}
+                        </span>
+                    </td>
+
+                    <td>
+                        <span class="${estado
+                    ? 'ps-badge-active'
+                    : 'ps-badge-inactive'}">
+                            ${estado ? '● Activo' : '○ Inactivo'}
+                        </span>
+                    </td>
+
+                    <td class="pe-4 text-end">
+                        <button
+                            class="btn btn-sm btn-outline-primary"
+                            onclick="abrirModalReset(${u.id})">
+                            Restablecer clave
+                        </button>
+
+                        <button
+                            class="btn btn-sm ${estado
+                    ? 'btn-outline-danger'
+                    : 'btn-outline-success'}"
+                            onclick="toggleUsuario(${u.id}, ${estado})">
+                            ${estado ? 'Desactivar' : 'Activar'}
+                        </button>
+                    </td>
+                </tr>
+            `;
         }).join('');
-    } catch (e) {
-        console.error("Error al cargar usuarios:", e);
+
+    } catch (error) {
+        console.error('Error cargando usuarios:', error);
+
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center text-danger p-4">
+                    No se pudo conectar con el servidor.
+                </td>
+            </tr>`;
     }
+
+
 }
+
 
 // Guardar Nuevo Usuario con Validaciones y Alertas
 async function guardarUsuario(e) {
@@ -442,3 +528,167 @@ document.addEventListener('click', (e) => {
         realizarVenta(e);
     }
 });
+
+// =============================================
+// RESTABLECIMIENTO DE CONTRASEÑAS
+// SOLO ADMINISTRADOR
+// =============================================
+
+window.abrirModalReset = function (id) {
+
+    const usuario = (window.usuariosCache || []).find(
+        u => Number(u.id) === Number(id)
+    );
+
+    if (!usuario) {
+        console.error('Usuario no encontrado. ID:', id);
+        console.log('Usuarios disponibles:', window.usuariosCache);
+
+        PS.alertBox(
+            'Usuario no encontrado',
+            'No se pudo localizar el usuario seleccionado.'
+        );
+        return;
+    }
+
+    console.log('Usuario seleccionado:', usuario);
+
+    document.getElementById('resetUserId').value = usuario.id;
+
+    document.getElementById('resetUserName').value =
+        `${usuario.name} (${usuario.username})`;
+
+    document.getElementById('resetPassword').value = '';
+
+    document.getElementById('modalResetPassword')
+        .classList.add('active');
+};
+
+function cerrarModalReset() {
+    document.getElementById('modalResetPassword')
+        .classList.remove('active');
+
+    document.getElementById('resetPassword').value = '';
+}
+
+// CONTRASEÑA MANUAL
+async function guardarPasswordManual() {
+    const id = document.getElementById('resetUserId').value;
+    const password = document.getElementById('resetPassword').value;
+
+    if (!password || password.length < 8) {
+        PS.alertBox(
+            'Contraseña inválida',
+            'La contraseña debe tener al menos 8 caracteres.',
+            'warning'
+        );
+        return;
+    }
+
+    const confirmacion = await Swal.fire({
+        title: '¿Cambiar contraseña?',
+        text: 'La contraseña anterior dejará de funcionar.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cambiar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#1e3a8a'
+    });
+
+    if (!confirmacion.isConfirmed) return;
+
+    const res = await PS.api(
+        `/api/users/${id}/reset-password`,
+        {
+            p: password,
+            generar: false
+        }
+    );
+
+    if (res.ok && res.data?.ok) {
+        cerrarModalReset();
+
+        await Swal.fire({
+            icon: 'success',
+            title: 'Contraseña actualizada',
+            text: 'La nueva contraseña fue guardada correctamente.',
+            confirmButtonText: 'Aceptar'
+        });
+    } else {
+        PS.alertBox(
+            'Error',
+            res.data?.error || 'No se pudo cambiar la contraseña.'
+        );
+    }
+}
+
+// CONTRASEÑA AUTOMÁTICA
+async function generarPasswordAutomatica() {
+    const id = document.getElementById('resetUserId').value;
+
+    const confirmacion = await Swal.fire({
+        title: 'Generar contraseña temporal',
+        text: 'Se reemplazará la contraseña actual del usuario.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Generar contraseña',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#16a34a'
+    });
+
+    if (!confirmacion.isConfirmed) return;
+
+    const res = await PS.api(
+        `/api/users/${id}/reset-password`,
+        {
+            p: '',
+            generar: true
+        }
+    );
+
+    if (res.ok && res.data?.ok) {
+        cerrarModalReset();
+
+        await Swal.fire({
+            icon: 'success',
+            title: 'Contraseña generada',
+            html: `
+                <p>Usuario: <b>${PS.esc(res.data.usuario)}</b></p>
+                <p>Contraseña temporal:</p>
+                <input
+                    id="claveTemporalMostrar"
+                    class="swal2-input"
+                    readonly
+                    value="${PS.esc(res.data.password)}"
+                    style="font-family:monospace;text-align:center">
+                <p class="text-muted">
+                    Guarda esta contraseña y entrégasela al usuario.
+                </p>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Copiar contraseña',
+            cancelButtonText: 'Cerrar'
+        }).then(async result => {
+            if (result.isConfirmed) {
+                try {
+                    await navigator.clipboard.writeText(
+                        res.data.password
+                    );
+                    PS.toast('success', 'Contraseña copiada');
+                } catch {
+                    PS.alertBox(
+                        'No se pudo copiar',
+                        'Puedes copiarla manualmente desde el campo mostrado.',
+                        'warning'
+                    );
+                }
+            }
+        });
+
+    } else {
+        PS.alertBox(
+            'Error',
+            res.data?.error || 'No se pudo generar la contraseña.'
+        );
+    }
+}
