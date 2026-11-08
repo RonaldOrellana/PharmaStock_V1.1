@@ -25,6 +25,11 @@ html, body {
     margin: 0
 }
 
+html {
+    width: 100%;
+    overflow-x: hidden
+}
+
 body {
     font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     background: var(--bg);
@@ -56,7 +61,9 @@ a {
 /* Shell */
 .app {
     display: flex;
-    min-height: 100vh
+    min-height: 100vh;
+    width: 100%;
+    max-width: 100vw
 }
 
 .sidebar {
@@ -147,6 +154,7 @@ a {
 .main {
     flex: 1;
     min-width: 0;
+    width: 0;
     display: flex;
     flex-direction: column
 }
@@ -158,6 +166,8 @@ a {
     align-items: center;
     gap: 1rem;
     padding: .7rem 1.4rem;
+    width: 100%;
+    min-width: 0;
     position: sticky;
     top: 0;
     z-index: 30;
@@ -167,7 +177,9 @@ a {
     .topbar h1 {
         font-size: 1.1rem;
         font-weight: 600;
-        flex: 1
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere
     }
 
 .burger {
@@ -280,8 +292,9 @@ a {
 
 .content {
     padding: 1.5rem;
-    max-width: 1400px;
-    width: 100%
+    width: 100%;
+    max-width: none;
+    min-width: 0
 }
 
 .page-h {
@@ -305,27 +318,32 @@ a {
 /* Grid & cards */
 .grid {
     display: grid;
-    gap: 1rem
+    gap: 1rem;
+    min-width: 0
+}
+
+.grid > * {
+    min-width: 0
 }
 
 .g2 {
-    grid-template-columns: repeat(2,1fr)
+    grid-template-columns: repeat(2,minmax(0,1fr))
 }
 
 .g3 {
-    grid-template-columns: repeat(3,1fr)
+    grid-template-columns: repeat(3,minmax(0,1fr))
 }
 
 .g4 {
-    grid-template-columns: repeat(4,1fr)
+    grid-template-columns: repeat(4,minmax(0,1fr))
 }
 
 .g-7-5 {
-    grid-template-columns: 7fr 5fr
+    grid-template-columns: minmax(0,7fr) minmax(0,5fr)
 }
 
 .g-5-7 {
-    grid-template-columns: 5fr 7fr
+    grid-template-columns: minmax(0,5fr) minmax(0,7fr)
 }
 
 .mt {
@@ -440,6 +458,7 @@ a {
 /* Tablas */
 .tw {
     overflow-x: auto;
+    max-width: 100%;
     border-radius: var(--r);
     box-shadow: var(--sh);
     background: #fff
@@ -787,7 +806,7 @@ input, select, textarea {
 /* Responsive */
 @media(max-width:1100px) {
     .g4 {
-        grid-template-columns: repeat(2,1fr)
+        grid-template-columns: repeat(2,minmax(0,1fr))
     }
 
     .g-7-5, .g-5-7, .g3 {
@@ -796,6 +815,10 @@ input, select, textarea {
 }
 
 @media(max-width:820px) {
+    .main {
+        width: 100%
+    }
+
     .sidebar {
         position: fixed;
         transform: translateX(-100%)
@@ -814,6 +837,39 @@ input, select, textarea {
     }
 
     .content {
+        padding: 1rem;
+        width: 100%
+    }
+}
+
+@media(max-width:520px) {
+    .topbar {
+        gap: .6rem;
+        padding: .65rem .8rem
+    }
+
+        .topbar h1 {
+            font-size: 1rem
+        }
+
+    .content {
+        padding: .75rem
+    }
+
+    .page-h {
+        align-items: flex-start;
+        margin-bottom: 1rem
+    }
+
+        .page-h h2 {
+            font-size: 1.25rem
+        }
+
+    .card {
+        padding: 1rem
+    }
+
+    .ps-card {
         padding: 1rem
     }
 }
