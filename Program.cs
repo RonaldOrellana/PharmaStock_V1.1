@@ -23,7 +23,7 @@ b.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).
 {
     o.LoginPath = "/Login";
     o.AccessDeniedPath = "/Denied";
-    o.ExpireTimeSpan = TimeSpan.FromHours(8);
+    o.ExpireTimeSpan = TimeSpan.FromMinutes(15);
     o.SlidingExpiration = true;
     o.Cookie.HttpOnly = true;
     o.Cookie.SameSite = SameSiteMode.Strict;
