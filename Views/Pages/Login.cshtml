@@ -9,7 +9,7 @@
     <title>Ingreso · PharmaStock</title>
     <link rel="stylesheet" href="@Url.Content("~/css/pharma.css")" />
     <style>
-            /* Estilo de alerta en línea integrado al formulario (estilo Google) */
+            /* Alerta en línea estilo Google */
             .inline-alert {
                 display: flex;
                 align-items: center;
@@ -47,25 +47,66 @@
                     transform: translateY(0);
                 }
             }
+
+            /* --- ESTILOS MEJORADOS PARA PANEL DE RECUPERACIÓN --- */
+            .recuperacion-tab-btn {
+                background: none;
+                border: none;
+                font-weight: 600;
+                font-size: 0.85rem;
+                color: #64748b;
+                padding: 6px 12px;
+                border-bottom: 2px solid transparent;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+
+                .recuperacion-tab-btn.active {
+                    color: #1e40af;
+                    border-bottom-color: #1e40af;
+                }
+
+            .recuperacion-box {
+                background-color: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+                padding: 16px;
+                margin-top: 15px;
+                animation: fadeIn 0.25s ease-in-out;
+            }
+
+            .btn-link-clean {
+                background: none;
+                border: none;
+                color: #1e40af;
+                font-size: 13px;
+                font-weight: 500;
+                text-decoration: none;
+                cursor: pointer;
+                padding: 0;
+                transition: color 0.2s ease;
+            }
+
+                .btn-link-clean:hover {
+                    color: #1d4ed8;
+                    text-decoration: underline;
+                }
     </style>
 </head>
 <body class="pharma-login-body">
 
-    <!-- Partículas de luz flotando en el fondo general -->
+    <!-- Partículas de luz flotando -->
     <div class="bg-particle p1"></div>
     <div class="bg-particle p2"></div>
 
     <div class="card-login-wrapper animate-card-entry">
 
-        <!-- Columna Izquierda: Fondo Vivo + Personajes Pastillas Interactivas -->
+        <!-- Columna Izquierda: Ilustración -->
         <div class="col-illustration">
-
-            <!-- Burbujas decorativas flotando en el fondo del panel izquierdo -->
             <div class="bubble b1"></div>
             <div class="bubble b2"></div>
             <div class="bubble b3"></div>
 
-            <!-- Header del sistema PharmaStock -->
             <div class="pharma-brand-header">
                 <div class="brand-logo-pill">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -77,8 +118,6 @@
             </div>
 
             <div class="illustration-container">
-
-                <!-- Pastilla 1: Comprimido azul marino (Flota y se mece) -->
                 <div class="pharm-char char-pill-blue anim-float-slow" id="charPill">
                     <div class="pill-notch"></div>
                     <div class="char-face">
@@ -90,7 +129,6 @@
                     </div>
                 </div>
 
-                <!-- Pastilla 2: Cápsula Verde/Verde claro (Rebota y parpadea) -->
                 <div class="pharm-char char-capsule-bicolor anim-float-bounce" id="charCapsule">
                     <div class="capsule-top"></div>
                     <div class="capsule-bottom"></div>
@@ -103,7 +141,6 @@
                     </div>
                 </div>
 
-                <!-- Pastilla 3: Píldora Cian (Se bambolea en bucle) -->
                 <div class="pharm-char char-pill-cyan anim-float-wobble" id="charBottle">
                     <div class="pill-line"></div>
                     <div class="char-face">
@@ -114,69 +151,121 @@
                         <div class="mouth open"></div>
                     </div>
                 </div>
-
             </div>
 
             <p class="illustration-footer-text">Control de inventario y punto de venta</p>
         </div>
 
-        <!-- Columna Derecha: Formulario Limpio con Icono de Edificio de Farmacia -->
+        <!-- Columna Derecha: Formulario Limpio -->
         <div class="col-form-clean">
 
-            <!-- Icono Realista de Edificio de Farmacia -->
             <div class="pharmacy-icon-wrapper">
                 <div class="pharmacy-cross-badge">
                     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <!-- Estructura del edificio de la farmacia -->
                         <path d="M3 21h18" />
                         <path d="M5 21V7l7-4 7 4v14" />
                         <path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4" />
-                        <!-- Toldo / Awaning -->
                         <path d="M4 11h16" />
-                        <!-- Ventana -->
                         <rect x="9" y="7" width="6" height="4" rx="1" />
                     </svg>
                 </div>
             </div>
 
-            <h2 class="welcome-title">Bienvenido de nuevo</h2>
-            <p class="welcome-subtitle">Por favor ingrese sus credenciales</p>
+            <!-- VISTA 1: FORMULARIO PRINCIPAL DE LOGIN -->
+            <div id="vistaLogin">
+                <h2 class="welcome-title">Bienvenido de nuevo</h2>
+                <p class="welcome-subtitle">Por favor ingrese sus credenciales</p>
 
-            <form id="f" novalidate autocomplete="off">
-
-                <!-- Input Usuario -->
-                <div class="clean-field-group">
-                    <label for="u">Usuario</label>
-                    <div class="clean-input-wrapper">
-                        <input id="u" type="text" placeholder="Ej. admin" autocomplete="off" autofocus />
-                        <span class="animated-underline"></span>
+                <form id="f" novalidate autocomplete="off">
+                    <div class="clean-field-group">
+                        <label for="u">Usuario</label>
+                        <div class="clean-input-wrapper">
+                            <input id="u" type="text" placeholder="Ej. admin" autocomplete="off" autofocus />
+                            <span class="animated-underline"></span>
+                        </div>
                     </div>
-                </div>
 
-                <!-- Input Contraseña -->
-                <div class="clean-field-group">
-                    <label for="p">Contraseña</label>
-                    <div class="clean-input-wrapper">
-                        <input id="p" type="password" placeholder="••••••••" autocomplete="off" />
-                        <span class="animated-underline"></span>
+                    <div class="clean-field-group">
+                        <label for="p">Contraseña</label>
+                        <div class="clean-input-wrapper">
+                            <input id="p" type="password" placeholder="••••••••" autocomplete="off" />
+                            <span class="animated-underline"></span>
+                        </div>
                     </div>
+
+                    <div id="err"></div>
+
+                    <button class="btn-clean-pill" id="go" type="submit">
+                        <span>Ingresar</span>
+                    </button>
+
+                    <div style="text-align:center; margin-top:16px;">
+                        <button type="button" class="btn-link-clean" id="mostrarRecuperacion">
+                            ¿Olvidaste tu contraseña?
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- VISTA 2: PANEL DE RECUPERACIÓN (OCULTO POR DEFECTO Y ESTILIZADO) -->
+            <div id="panelRecuperacion" style="display:none;" class="animate-card-entry">
+                <h2 class="welcome-title">Recuperación</h2>
+                <p class="welcome-subtitle">Gestión de accesos y credenciales</p>
+
+                <!-- Tabs de Navegación del Panel de Recuperación -->
+                <div class="d-flex border-bottom mb-3" style="display:flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 15px;">
+                    <button type="button" class="recuperacion-tab-btn active" id="tabSolicitar">1. Solicitar Código</button>
+                    <button type="button" class="recuperacion-tab-btn" id="tabConfirmar">2. Cambiar Clave</button>
                 </div>
 
-                <!-- Mensaje de Alerta en Línea Directo al Formulario -->
-                <div id="err"></div>
-
-                <!-- Botón Ingresar Pill -->
-                <button class="btn-clean-pill" id="go" type="submit">
-                    <span>Ingresar</span>
-                </button>
-
-                <div class="form-footer-note">
-                    <span>PharmaStock v1.1 &bull; Sistema Seguro</span>
+                <!-- PASO 1: Solicitar código al Administrador -->
+                <div id="paso1Recuperacion">
+                    <p style="font-size:13px; color:#64748b; margin-bottom: 12px;">
+                        Ingresa tu nombre de usuario para solicitar la autorización del Administrador.
+                    </p>
+                    <div class="clean-field-group">
+                        <div class="clean-input-wrapper">
+                            <input id="usuarioRecuperacion" type="text" placeholder="Nombre de usuario" autocomplete="off" />
+                            <span class="animated-underline"></span>
+                        </div>
+                    </div>
+                    <button type="button" id="solicitarRecuperacion" class="btn-clean-pill" style="margin-top: 10px;">
+                        Solicitar Autorización
+                    </button>
                 </div>
 
-            </form>
+                <!-- PASO 2: Restablecer Contraseña -->
+                <div id="paso2Recuperacion" style="display:none;">
+                    <div class="clean-field-group">
+                        <div class="clean-input-wrapper" style="margin-bottom: 8px;">
+                            <input id="codigoRecuperacion" type="text" maxlength="6" inputmode="numeric" placeholder="Código (6 dígitos)" autocomplete="off" />
+                        </div>
+                        <div class="clean-input-wrapper" style="margin-bottom: 8px;">
+                            <input id="nuevaClaveRecuperacion" type="password" minlength="8" placeholder="Nueva contraseña" autocomplete="off" />
+                        </div>
+                        <div class="clean-input-wrapper">
+                            <input id="confirmarClaveRecuperacion" type="password" minlength="8" placeholder="Confirmar contraseña" autocomplete="off" />
+                        </div>
+                    </div>
+                    <button type="button" id="confirmarRecuperacion" class="btn-clean-pill" style="margin-top: 10px;">
+                        Actualizar Contraseña
+                    </button>
+                </div>
+
+                <div id="mensajeRecuperacion" style="margin-top:12px; font-size:13px; text-align:center;"></div>
+
+                <div style="text-align:center; margin-top:20px;">
+                    <button type="button" class="btn-link-clean" id="volverLogin">
+                        ← Volver a inicio de sesión
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-footer-note" style="margin-top: 20px;">
+                <span>PharmaStock v1.1 &bull; Sistema Seguro</span>
+            </div>
+
         </div>
-
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.10.5/dist/sweetalert2.all.min.js"></script>
@@ -184,7 +273,7 @@
     <script>
             PS.setUser({ id: 0, name: '', role: 'Vendedor' }, 'Login');
 
-            // --- INTERACCIÓN DE OJOS Y MOVIMIENTO DE PASTILLAS ---
+            // --- MOVIMIENTO INTERACTIVO DE OJOS Y PASTILLAS ---
             const userInput = document.getElementById('u');
             const passInput = document.getElementById('p');
             const pupils = document.querySelectorAll('.pupil');
@@ -215,7 +304,43 @@
                 });
             });
 
-            // --- MANEJO DE ALERTAS DIRECTAS EN EL FORMULARIO SIN SWEETALERT ---
+            // --- MANEJO DE VISTAS (LOGIN VS RECUPERACIÓN) ---
+            const vistaLogin = document.getElementById('vistaLogin');
+            const panelRecuperacion = document.getElementById('panelRecuperacion');
+            const btnMostrarRecuperacion = document.getElementById('mostrarRecuperacion');
+            const btnVolverLogin = document.getElementById('volverLogin');
+
+            btnMostrarRecuperacion.addEventListener('click', () => {
+                vistaLogin.style.display = 'none';
+                panelRecuperacion.style.display = 'block';
+            });
+
+            btnVolverLogin.addEventListener('click', () => {
+                panelRecuperacion.style.display = 'none';
+                vistaLogin.style.display = 'block';
+            });
+
+            // TABS RECUPERACIÓN
+            const tabSolicitar = document.getElementById('tabSolicitar');
+            const tabConfirmar = document.getElementById('tabConfirmar');
+            const paso1 = document.getElementById('paso1Recuperacion');
+            const paso2 = document.getElementById('paso2Recuperacion');
+
+            tabSolicitar.addEventListener('click', () => {
+                tabSolicitar.classList.add('active');
+                tabConfirmar.classList.remove('active');
+                paso1.style.display = 'block';
+                paso2.style.display = 'none';
+            });
+
+            tabConfirmar.addEventListener('click', () => {
+                tabConfirmar.classList.add('active');
+                tabSolicitar.classList.remove('active');
+                paso2.style.display = 'block';
+                paso1.style.display = 'none';
+            });
+
+            // --- SUBMIT DE LOGIN ---
             document.getElementById('f').onsubmit = async e => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -225,22 +350,19 @@
                 const btn = document.getElementById('go');
                 const errContainer = document.getElementById('err');
 
-                // Limpiar alertas previas y bordes rojos
                 errContainer.innerHTML = '';
                 [userInput, passInput].forEach(i => i.classList.remove('bad'));
 
-                // Función auxiliar para mostrar el mensaje directo en el formulario
                 const showError = (msg) => {
                     errContainer.innerHTML = `
-                                    <div class="inline-alert">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <circle cx="12" cy="12" r="10"></circle>
-                                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                                        </svg>
-                                        <span>${PS.esc(msg)}</span>
-                                    </div>
-                                `;
+                                <div class="inline-alert">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                                    </svg>
+                                    <span>${PS.esc(msg)}</span>
+                                </div>`;
                 };
 
                 if (!u || !p) {
@@ -269,6 +391,81 @@
                     if (btn) btn.disabled = false;
                 }
             };
+
+            // --- ACCIONES DE RECUPERACIÓN ---
+            const mensajeRecuperacion = document.getElementById('mensajeRecuperacion');
+
+            function mostrarMensajeRecuperacion(mensaje, correcto = false) {
+                mensajeRecuperacion.textContent = mensaje;
+                mensajeRecuperacion.style.color = correcto ? '#15803d' : '#dc2626';
+            }
+
+            document.getElementById('solicitarRecuperacion').addEventListener('click', async () => {
+                const usuario = document.getElementById('usuarioRecuperacion').value.trim();
+                if (!usuario) {
+                    mostrarMensajeRecuperacion('Escribe tu nombre de usuario.');
+                    return;
+                }
+
+                try {
+                    const respuesta = await fetch('/api/password-recovery/request', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ usuario })
+                    });
+
+                    const data = await respuesta.json();
+                    mostrarMensajeRecuperacion(data.mensaje || 'Solicitud enviada al Administrador.', true);
+                } catch {
+                    mostrarMensajeRecuperacion('No se pudo conectar con el servidor.');
+                }
+            });
+
+            document.getElementById('confirmarRecuperacion').addEventListener('click', async () => {
+                const usuario = document.getElementById('usuarioRecuperacion').value.trim();
+                const codigo = document.getElementById('codigoRecuperacion').value.trim();
+                const nuevaClave = document.getElementById('nuevaClaveRecuperacion').value;
+                const confirmar = document.getElementById('confirmarClaveRecuperacion').value;
+
+                if (!usuario || !codigo || !nuevaClave || !confirmar) {
+                    mostrarMensajeRecuperacion('Completa todos los campos.');
+                    return;
+                }
+
+                if (nuevaClave.length < 8) {
+                    mostrarMensajeRecuperacion('La contraseña debe tener al menos 8 caracteres.');
+                    return;
+                }
+
+                if (nuevaClave !== confirmar) {
+                    mostrarMensajeRecuperacion('Las contraseñas no coinciden.');
+                    return;
+                }
+
+                try {
+                    const respuesta = await fetch('/api/password-recovery/reset', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ usuario, codigo, nuevaClave })
+                    });
+
+                    const data = await respuesta.json();
+
+                    if (!respuesta.ok || !data.ok) {
+                        mostrarMensajeRecuperacion(data.error || 'No se pudo cambiar la contraseña.');
+                        return;
+                    }
+
+                    mostrarMensajeRecuperacion('Contraseña actualizada. Ya puedes iniciar sesión.', true);
+
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+
+                } catch {
+                    mostrarMensajeRecuperacion('No se pudo conectar con el servidor.');
+                }
+            });
     </script>
-    </body>
+</body>
 </html>

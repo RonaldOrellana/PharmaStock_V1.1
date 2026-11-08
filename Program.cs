@@ -87,6 +87,224 @@ app.MapPost("/api/login", async (LoginReq r, Db d, HttpContext h) =>
     return Results.Ok(new { ok = true, role, home = role == V ? "/Facturacion" : "/Dashboard" });
 });
 
+// El usuario solicita recuperar su contraseña.
+// No revela si el usuario existe.
+app.MapPost("/api/password-recovery/request",
+    async (SolicitarRecuperacionReq r, Db d) =>
+    {
+        var nombreUsuario = (r.usuario ?? "").Trim();
+
+        if (nombreUsuario.Length < 3 || nombreUsuario.Length > 50)
+            return Results.Ok(new
+            {
+                ok = true,
+                mensaje = "Si la cuenta es válida, la solicitud será revisada."
+            });
+
+        var usuario = await d.Usuarios
+            .Include(x => x.Rol)
+            .FirstOrDefaultAsync(x =>
+                x.Usuario.ToLower() == nombreUsuario.ToLower() &&
+                x.Estado);
+
+        // Nunca permitir recuperación de cuentas Administrador.
+        if (usuario != null &&
+            NormRole(usuario.Rol.NombreRol) != "Administrador")
+        {
+            var pendiente = await d.SolicitudesCambioClave
+                .AnyAsync(x =>
+                    x.IdUsuario == usuario.IdUsuario &&
+                    x.Estado == "Pendiente");
+
+            if (!pendiente)
+            {
+                d.SolicitudesCambioClave.Add(
+                    new SolicitudCambioClave
+                    {
+                        IdUsuario = usuario.IdUsuario,
+                        Estado = "Pendiente",
+                        FechaSolicitud = DateTime.UtcNow
+                    });
+
+                await d.SaveChangesAsync();
+            }
+        }
+
+        return Results.Ok(new
+        {
+            ok = true,
+            mensaje = "Si la cuenta es válida, la solicitud será revisada por el Administrador."
+        });
+    })
+.AllowAnonymous();
+
+
+// El Administrador consulta solicitudes pendientes.
+app.MapGet("/api/password-recovery/pending",
+    async (Db d) =>
+    {
+        var solicitudes = await d.SolicitudesCambioClave
+            .Include(x => x.Usuario)
+            .Where(x => x.Estado == "Pendiente")
+            .OrderBy(x => x.FechaSolicitud)
+            .Select(x => new
+            {
+                id = x.IdSolicitud,
+                usuario = x.Usuario.Usuario,
+                nombre = x.Usuario.Nombre,
+                fecha = x.FechaSolicitud
+            })
+            .ToListAsync();
+
+        return Results.Ok(new
+        {
+            ok = true,
+            solicitudes
+        });
+    })
+.RequireAuthorization(Roles(A));
+
+
+// Aprobar solicitud y generar código temporal.
+app.MapPost("/api/password-recovery/approve/{id}",
+    async (int id, Db d) =>
+    {
+        var solicitud = await d.SolicitudesCambioClave
+            .Include(x => x.Usuario)
+                .ThenInclude(x => x.Rol)
+            .FirstOrDefaultAsync(x => x.IdSolicitud == id);
+
+        if (solicitud == null)
+            return Results.NotFound(new
+            {
+                ok = false,
+                error = "La solicitud no existe."
+            });
+
+        if (solicitud.Estado != "Pendiente")
+            return Err("La solicitud ya fue procesada.");
+
+        if (solicitud.Usuario == null ||
+            !solicitud.Usuario.Estado ||
+            NormRole(solicitud.Usuario.Rol.NombreRol) == "Administrador")
+            return Err("Esta cuenta no puede utilizar la recuperación.");
+
+        // Código aleatorio criptográficamente seguro.
+        string codigo = RandomNumberGenerator
+            .GetInt32(0, 1_000_000)
+            .ToString("D6");
+
+        solicitud.CodigoHash = Hash(codigo);
+        solicitud.Estado = "Aprobada";
+        solicitud.FechaResolucion = DateTime.UtcNow;
+        solicitud.FechaExpiracion = DateTime.UtcNow.AddMinutes(30);
+
+        await d.SaveChangesAsync();
+
+        // El código solo se devuelve en esta respuesta al Administrador.
+        return Results.Ok(new
+        {
+            ok = true,
+            codigo,
+            usuario = solicitud.Usuario.Usuario,
+            nombre = solicitud.Usuario.Nombre,
+            expira = solicitud.FechaExpiracion,
+            mensaje = "Entrega este código al usuario. No volverá a mostrarse."
+        });
+    })
+.RequireAuthorization(Roles(A));
+
+
+// Rechazar solicitud.
+app.MapPost("/api/password-recovery/reject/{id}",
+    async (int id, Db d) =>
+    {
+        var solicitud = await d.SolicitudesCambioClave
+            .FirstOrDefaultAsync(x => x.IdSolicitud == id);
+
+        if (solicitud == null)
+            return Results.NotFound(new { error = "Solicitud no encontrada." });
+
+        if (solicitud.Estado != "Pendiente")
+            return Err("La solicitud ya fue procesada.");
+
+        solicitud.Estado = "Rechazada";
+        solicitud.FechaResolucion = DateTime.UtcNow;
+
+        await d.SaveChangesAsync();
+
+        return Results.Ok(new { ok = true });
+    })
+.RequireAuthorization(Roles(A));
+
+
+// El usuario establece una nueva contraseña con su código.
+app.MapPost("/api/password-recovery/reset",
+    async (RecuperarClaveReq r, Db d) =>
+    {
+        var usuarioNombre = (r.usuario ?? "").Trim();
+        var codigo = (r.codigo ?? "").Trim();
+        var nuevaClave = r.nuevaClave ?? "";
+
+        if (string.IsNullOrWhiteSpace(usuarioNombre) ||
+            string.IsNullOrWhiteSpace(codigo) ||
+            nuevaClave.Length < 8)
+        {
+            return Err("Completa los datos. La contraseña debe tener al menos 8 caracteres.");
+        }
+
+        if (codigo.Length != 6 || !codigo.All(char.IsDigit))
+            return Err("El código de autorización no es válido.");
+
+        await using var tx = await d.Database.BeginTransactionAsync();
+
+        var usuario = await d.Usuarios
+            .Include(x => x.Rol)
+            .FirstOrDefaultAsync(x =>
+                x.Usuario.ToLower() == usuarioNombre.ToLower() &&
+                x.Estado);
+
+        if (usuario == null ||
+            NormRole(usuario.Rol.NombreRol) == "Administrador")
+        {
+            return Err("No fue posible validar la solicitud.");
+        }
+
+        var ahora = DateTime.UtcNow;
+        var codigoHash = Hash(codigo);
+
+        var solicitud = await d.SolicitudesCambioClave
+            .Where(x =>
+                x.IdUsuario == usuario.IdUsuario &&
+                x.Estado == "Aprobada" &&
+                x.CodigoHash == codigoHash &&
+                x.FechaExpiracion != null &&
+                x.FechaExpiracion > ahora)
+            .OrderByDescending(x => x.FechaResolucion)
+            .FirstOrDefaultAsync();
+
+        if (solicitud == null)
+            return Err("Código incorrecto, vencido o ya utilizado.");
+
+        // Mantener compatibilidad con el login actual.
+        usuario.ClaveHash = HashSql(nuevaClave);
+
+        // Consumir el código: no podrá volver a utilizarse.
+        solicitud.Estado = "Utilizada";
+        solicitud.CodigoHash = null;
+        solicitud.FechaResolucion = ahora;
+
+        await d.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        return Results.Ok(new
+        {
+            ok = true,
+            mensaje = "Tu contraseña fue actualizada. Ya puedes iniciar sesión."
+        });
+    })
+.AllowAnonymous();
+
 // ---------- ESTADO PARA LA INTERFAZ (se recorta según el rol) ----------
 app.MapGet("/api/state", async (Db d, HttpContext h) =>
 {
@@ -187,6 +405,7 @@ app.MapPost("/api/lots", async (LotReq r, Db d, HttpContext h) =>
     }
     catch (DbUpdateException ex) { return Err("Error al guardar en la base de datos: " + (ex.InnerException?.Message ?? ex.Message)); }
 }).RequireAuthorization(Roles(A, S));
+
 
 // ---------- VENTAS (RF-05, RF-06: todos los roles). PEPS validado en servidor ----------
 app.MapPost("/api/sales", async (SaleReq r, Db d, HttpContext h, IConfiguration config, IDteService dteService) =>
@@ -447,6 +666,14 @@ record SaleReq(int uid, string cli, string email, bool? sendEmail, List<Item> it
 record AdjReq(int lot, int q, string why, int uid);
 record UserReq(string nombre, string u, string p, int idRol);
 record PasswordResetReq(string? p, bool generar);
+record SolicitarRecuperacionReq(string usuario);
+record AprobarRecuperacionReq(int id);
+record RecuperarClaveReq(
+    string usuario,
+    string codigo,
+    string nuevaClave
+);
+
 
 
 
@@ -469,6 +696,30 @@ class Usr
     public int IdRol { get; set; }
     [ForeignKey("IdRol")] public Rol Rol { get; set; }
     public bool Estado { get; set; } = true;
+}
+
+[Table("SolicitudesCambioClave")]
+class SolicitudCambioClave
+{
+    [Key]
+    public int IdSolicitud { get; set; }
+
+    public int IdUsuario { get; set; }
+
+    [ForeignKey(nameof(IdUsuario))]
+    public Usr Usuario { get; set; }
+
+    [MaxLength(20)]
+    public string Estado { get; set; } = "Pendiente";
+
+    [MaxLength(64)]
+    public string CodigoHash { get; set; }
+
+    public DateTime FechaSolicitud { get; set; } = DateTime.UtcNow;
+
+    public DateTime? FechaExpiracion { get; set; }
+
+    public DateTime? FechaResolucion { get; set; }
 }
 
 [Table("Categorias")]
@@ -591,6 +842,7 @@ class Db : DbContext
     public DbSet<Venta> Ventas { get; set; }
     public DbSet<DetalleVenta> DetalleVentas { get; set; }
     public DbSet<Movimiento> MovimientosInventario { get; set; }
+    public DbSet<SolicitudCambioClave> SolicitudesCambioClave { get; set; }
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -602,6 +854,8 @@ class Db : DbContext
         mb.Entity<Venta>().HasIndex(v => v.NumeroFactura).IsUnique();
         mb.Entity<Lote>()
             .ToTable(tb => tb.HasTrigger("TR_Lotes_ActualizarStockMedicamento"));
+        mb.Entity<SolicitudCambioClave>()
+    .HasIndex(x => new { x.IdUsuario, x.Estado });
     }
 }
 

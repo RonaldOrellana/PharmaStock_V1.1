@@ -2,47 +2,88 @@
     ViewData["Title"] = "Gestión de Usuarios";
 }
 
+<link rel="stylesheet" href="~/css/pharma.css" asp-append-version="true" />
 
-    <!-- Vinculación del CSS externo con control de versión de Razor para romper la caché -->
-    <link rel="stylesheet" href="~/css/pharma.css" asp-append-version="true" />
+<div class="ps-page-container">
 
-<!-- Encabezado de la Sección -->
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h2 class="ps-page-title">Gestión de Usuarios</h2>
-        <p class="text-muted mb-0">Generación de credenciales y administración de accesos del personal</p>
+    <!-- ENCABEZADO DE SECCIÓN -->
+    <div class="ps-section-header">
+        <h2 class="ps-section-title">Gestión de Usuarios</h2>
+        <p class="ps-section-subtitle">Generación de credenciales y administración de accesos del personal</p>
     </div>
-    <button type="button" class="btn btn-primary px-4 py-2 fw-semibold rounded-3 shadow-sm" onclick="abrirModalUsuario()">
-        + Nuevo Usuario
-    </button>
+
+    <!-- BOTÓN DE ACCIÓN PRINCIPAL (Separado de la tabla con margen de 28px) -->
+    <div class="ps-header-actions">
+        <button type="button" class="btn btn-primary px-4 py-2.5 fw-semibold rounded-3 shadow-sm" onclick="abrirModalUsuario()">
+            + Nuevo Usuario
+        </button>
+    </div>
+
+    <!-- SECCIÓN 1: SOLICITUDES DE RECUPERACIÓN -->
+    <div class="ps-card-report">
+        <!-- Encabezado con espacio vertical entre texto, botón y tabla -->
+        <div class="ps-card-header-actions">
+            <div>
+                <h3 class="ps-card-title">Solicitudes de recuperación</h3>
+                <p class="ps-card-subtitle mb-0">Solicitudes pendientes de autorización enviadas por los usuarios.</p>
+            </div>
+            <div>
+                <button type="button" class="btn btn-outline-primary px-4 py-2 rounded-3 fw-semibold" onclick="cargarSolicitudesRecuperacion()">
+                    Actualizar
+                </button>
+            </div>
+        </div>
+
+        <div class="ps-table-wrapper">
+            <table class="table table-reportes">
+                <thead>
+                    <tr>
+                        <th>NOMBRE</th>
+                        <th>USUARIO</th>
+                        <th>FECHA Y HORA DE SOLICITUD</th>
+                        <th class="text-end">ACCIONES</th>
+                    </tr>
+                </thead>
+                <tbody id="tbodySolicitudesRecuperacion">
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">
+                            Cargando solicitudes...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- SECCIÓN 2: TABLA PRINCIPAL DE USUARIOS REGISTRADOS -->
+    <div class="ps-card-report">
+        <h3 class="ps-card-title">Usuarios Registrados</h3>
+        <p class="ps-card-subtitle">Lista general de cuentas y asignación de roles del sistema.</p>
+
+        <div class="ps-table-wrapper">
+            <table class="table table-reportes">
+                <thead>
+                    <tr>
+                        <th class="ps-3">ID</th>
+                        <th>NOMBRE COMPLETO</th>
+                        <th>USUARIO</th>
+                        <th>ROL</th>
+                        <th>ESTADO</th>
+                        <th class="pe-3 text-end">ACCIONES</th>
+                    </tr>
+                </thead>
+                <tbody id="tbodyUsuarios">
+                    <!-- Se inyecta dinámicamente desde pharma.js -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
 
-<!-- Tabla Principal de Usuarios -->
-<div class="ps-table-card mb-5">
-    <div class="table-responsive">
-        <table class="table ps-table mb-0">
-            <thead>
-                <tr>
-                    <th class="ps-4">ID</th>
-                    <th>Nombre Completo</th>
-                    <th>Usuario</th>
-                    <th>Rol</th>
-                    <th>Estado</th>
-                    <th class="pe-4 text-end">Acción</th>
-                </tr>
-            </thead>
-            <tbody id="tbodyUsuarios">
-                <!-- Se inyecta dinámicamente desde pharma.js -->
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- Modal Flotante Centrado -->
+<!-- MODAL CREAR USUARIO -->
 <div id="modalUsuarioOverlay" class="ps-modal-overlay">
     <div class="ps-modal-card">
-
-        <!-- Header del Modal -->
         <div class="ps-modal-header">
             <div>
                 <h5 class="ps-modal-title">Crear Nuevo Usuario</h5>
@@ -51,29 +92,24 @@
             <button type="button" class="btn-close shadow-none" onclick="cerrarModalUsuario()"></button>
         </div>
 
-        <!-- Formulario -->
         <form id="formUsuario" onsubmit="guardarUsuario(event)" novalidate>
             <div class="ps-modal-body">
                 <div class="row g-3">
-
                     <div class="col-md-6">
                         <label class="ps-label">Nombre Completo <span class="text-danger">*</span></label>
                         <input type="text" id="usrNombre" class="ps-input" placeholder="Ej: Juan Pérez" autocomplete="off" />
                         <div class="ps-feedback">Ingresa solo letras (mínimo 3 caracteres).</div>
                     </div>
-
                     <div class="col-md-6">
                         <label class="ps-label">Nombre de Usuario <span class="text-danger">*</span></label>
                         <input type="text" id="usrUsuario" class="ps-input" placeholder="Ej: jperez" autocomplete="off" />
                         <div class="ps-feedback">Sin espacios (mínimo 4 caracteres).</div>
                     </div>
-
                     <div class="col-md-6">
                         <label class="ps-label">Contraseña Inicial <span class="text-danger">*</span></label>
                         <input type="password" id="usrClave" class="ps-input" placeholder="••••••••" />
                         <div class="ps-feedback">Mínimo 6 caracteres.</div>
                     </div>
-
                     <div class="col-md-6">
                         <label class="ps-label">Rol Asignado <span class="text-danger">*</span></label>
                         <select id="usrRol" class="ps-input">
@@ -84,116 +120,205 @@
                         </select>
                         <div class="ps-feedback">Selecciona un rol.</div>
                     </div>
-
                 </div>
             </div>
-
-            <!-- Footer con Botones Separados -->
             <div class="ps-modal-footer">
-                <button type="button" class="btn btn-light px-4 rounded-3 border fw-semibold" onclick="cerrarModalUsuario()">
-                    Cancelar
-                </button>
-                <button type="submit" class="btn btn-primary px-4 rounded-3 fw-semibold shadow-sm">
-                    Guardar Usuario
-                </button>
+                <button type="button" class="btn btn-light px-4 rounded-3 border fw-semibold" onclick="cerrarModalUsuario()">Cancelar</button>
+                <button type="submit" class="btn btn-primary px-4 rounded-3 fw-semibold shadow-sm">Guardar Usuario</button>
             </div>
         </form>
-
     </div>
 </div>
+
 <!-- MODAL RESTABLECER CONTRASEÑA -->
 <div id="modalResetPassword" class="ps-modal-overlay">
     <div class="ps-modal-card">
-
         <div class="ps-modal-header">
             <div>
-                <h5 class="ps-modal-title">
-                    Restablecer contraseña
-                </h5>
-                <small class="ps-modal-subtitle">
-                    Administrar las credenciales del usuario
-                </small>
+                <h5 class="ps-modal-title">Restablecer contraseña</h5>
+                <small class="ps-modal-subtitle">Administrar las credenciales del usuario</small>
             </div>
-
-            <button type="button"
-                    class="btn-close"
-                    onclick="cerrarModalReset()">
-            </button>
+            <button type="button" class="btn-close" onclick="cerrarModalReset()"></button>
         </div>
-
         <div class="ps-modal-body">
-
             <input type="hidden" id="resetUserId">
-
             <div class="mb-3">
                 <label class="ps-label">Usuario seleccionado</label>
-                <input id="resetUserName"
-                       class="ps-input"
-                       readonly>
+                <input id="resetUserName" class="ps-input" readonly>
             </div>
-
             <div class="mb-3">
-                <label class="ps-label">
-                    Nueva contraseña manual
-                </label>
-
-                <input type="password"
-                       id="resetPassword"
-                       class="ps-input"
-                       minlength="8"
-                       autocomplete="new-password"
-                       placeholder="Mínimo 8 caracteres">
-
-                <small class="text-muted">
-                    O utiliza la generación automática.
-                </small>
+                <label class="ps-label">Nueva contraseña manual</label>
+                <input type="password" id="resetPassword" class="ps-input" minlength="8" autocomplete="new-password" placeholder="Mínimo 8 caracteres">
+                <small class="text-muted">O utiliza la generación automática.</small>
             </div>
-
         </div>
-
         <div class="ps-modal-footer">
-            <button type="button"
-                    class="btn btn-light"
-                    onclick="cerrarModalReset()">
-                Cancelar
-            </button>
-
-            <button type="button"
-                    class="btn btn-primary"
-                    onclick="guardarPasswordManual()">
-                Guardar contraseña
-            </button>
-
-            <button type="button"
-                    class="btn btn-success"
-                    onclick="generarPasswordAutomatica()">
-                Generar automática
-            </button>
+            <button type="button" class="btn btn-light" onclick="cerrarModalReset()">Cancelar</button>
+            <button type="button" class="btn btn-primary" onclick="guardarPasswordManual()">Guardar contraseña</button>
+            <button type="button" class="btn btn-success" onclick="generarPasswordAutomatica()">Generar automática</button>
         </div>
-
     </div>
 </div>
 
-
 @section Scripts {
+    <script src="~/js/pharma.js" asp-append-version="true"></script>
+
     <script>
-        window.abrirModalUsuario = function () {
-            document.getElementById('modalUsuarioOverlay')
-                ?.classList.add('active');
-        };
+        function formatearFechaHora(fechaStr) {
+            if (!fechaStr) {
+                return new Date().toLocaleString('es-SV', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            }
 
-        window.cerrarModalUsuario = function () {
-            document.getElementById('modalUsuarioOverlay')
-                ?.classList.remove('active');
+            const fecha = new Date(fechaStr);
+            if (isNaN(fecha.getTime())) {
+                return fechaStr;
+            }
 
-            document.querySelectorAll(
-                '#formUsuario .ps-input'
-            ).forEach(i => i.classList.remove('is-invalid'));
-        };
+            return fecha.toLocaleString('es-SV', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
+        }
+
+        async function cargarSolicitudesRecuperacion() {
+            const tbody = document.getElementById('tbodySolicitudesRecuperacion');
+            if (!tbody) return;
+
+            try {
+                const respuesta = await fetch('/api/password-recovery/pending', {
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!respuesta.ok) {
+                    throw new Error('No se pudieron cargar las solicitudes.');
+                }
+
+                const data = await respuesta.json();
+                const solicitudes = data.solicitudes || [];
+
+                if (!solicitudes.length) {
+                    tbody.innerHTML = `
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted py-4">
+                                        No hay solicitudes pendientes.
+                                    </td>
+                                </tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = solicitudes.map(s => `
+                            <tr>
+                                <td class="td-name">${window.PS ? PS.esc(s.nombre) : s.nombre}</td>
+                                <td class="td-code">${window.PS ? PS.esc(s.usuario) : s.usuario}</td>
+                                <td class="td-date">${formatearFechaHora(s.fecha)}</td>
+                                <td class="text-end">
+                                    <button class="btn btn-success btn-sm me-1 px-3" onclick="aprobarRecuperacion(${s.id})">
+                                        Aprobar
+                                    </button>
+                                    <button class="btn btn-danger btn-sm px-3" onclick="rechazarRecuperacion(${s.id})">
+                                        Rechazar
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('');
+
+            } catch (error) {
+                tbody.innerHTML = `
+                            <tr>
+                                <td colspan="4" class="text-danger text-center py-3">
+                                    ${error.message}
+                                </td>
+                            </tr>`;
+            }
+        }
+
+        async function aprobarRecuperacion(id) {
+            const confirmacion = await Swal.fire({
+                title: '¿Aprobar recuperación?',
+                text: 'Se generará un código temporal para el usuario.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Aprobar',
+                cancelButtonText: 'Cancelar'
+            });
+
+            if (!confirmacion.isConfirmed) return;
+
+            try {
+                const respuesta = await fetch(`/api/password-recovery/approve/${id}`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}'
+                });
+
+                const data = await respuesta.json();
+                if (!respuesta.ok || !data.ok) throw new Error(data.error || 'No se pudo aprobar.');
+
+                await Swal.fire({
+                    title: 'Solicitud aprobada',
+                    html: `
+                                <p>Entrega este código al usuario:</p>
+                                <h2 style="letter-spacing:8px;font-weight:bold;color:#1e3a8a;">${window.PS ? PS.esc(data.codigo) : data.codigo}</h2>
+                                <p>Usuario: <b>${window.PS ? PS.esc(data.usuario) : data.usuario}</b></p>
+                                <p class="text-muted fs-7">El código vence en 30 minutos.</p>
+                            `,
+                    icon: 'success',
+                    confirmButtonText: 'Entendido'
+                });
+
+                cargarSolicitudesRecuperacion();
+            } catch (error) {
+                Swal.fire('Error', error.message, 'error');
+            }
+        }
+
+        async function rechazarRecuperacion(id) {
+            const confirmacion = await Swal.fire({
+                title: '¿Rechazar solicitud?',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Rechazar',
+                cancelButtonText: 'Cancelar'
+            });
+
+            if (!confirmacion.isConfirmed) return;
+
+            try {
+                const respuesta = await fetch(`/api/password-recovery/reject/${id}`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}'
+                });
+
+                const data = await respuesta.json();
+                if (!respuesta.ok || !data.ok) throw new Error(data.error || 'No se pudo rechazar.');
+
+                await Swal.fire('Solicitud rechazada', 'La solicitud fue rechazada correctamente.', 'success');
+                cargarSolicitudesRecuperacion();
+            } catch (error) {
+                Swal.fire('Error', error.message, 'error');
+            }
+        }
 
         document.addEventListener('DOMContentLoaded', function () {
-            cargarUsuarios();
+            if (typeof cargarUsuarios === 'function') {
+                cargarUsuarios();
+            }
+            cargarSolicitudesRecuperacion();
         });
     </script>
 }
-

@@ -260,7 +260,43 @@ async function cargarUsuarios() {
     }
 
 
-}
+} 
+// =============================================
+// MODAL CREAR USUARIO
+// =============================================
+
+window.abrirModalUsuario = function () {
+    const overlay = document.getElementById('modalUsuarioOverlay');
+    if (overlay) {
+        overlay.classList.add('active');
+        overlay.style.display = 'flex'; // Garantiza visibilidad en pantalla
+    } else {
+        console.error('No se encontró el elemento #modalUsuarioOverlay');
+    }
+};
+
+window.cerrarModalUsuario = function () {
+    const overlay = document.getElementById('modalUsuarioOverlay');
+    if (overlay) {
+        overlay.classList.remove('active');
+        overlay.style.display = 'none';
+    }
+
+    // Limpiar campos del formulario y remover clases de error
+    const form = document.getElementById('formUsuario');
+    if (form) {
+        form.reset();
+        form.querySelectorAll('.is-invalid, .bad').forEach(el => el.classList.remove('is-invalid', 'bad'));
+    }
+};
+
+// Exponer también las funciones de restablecer modal por consistencia
+window.cerrarModalReset = cerrarModalReset;
+window.guardarPasswordManual = guardarPasswordManual;
+window.generarPasswordAutomatica = generarPasswordAutomatica;
+window.cargarUsuarios = cargarUsuarios;
+window.guardarUsuario = guardarUsuario;
+window.toggleUsuario = toggleUsuario;
 
 
 // Guardar Nuevo Usuario con Validaciones y Alertas

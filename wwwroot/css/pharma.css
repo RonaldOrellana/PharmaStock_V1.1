@@ -1566,3 +1566,219 @@ input, select, textarea {
     padding: 4px 10px;
     border-radius: 6px;
 }
+
+/* ==========================================
+   GESTIÓN DE USUARIOS Y TABLAS RESPONSIVAS
+   ========================================== */
+
+/* Tarjetas contenedoras */
+.ps-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    border: 1px solid #e2e8f0;
+    padding: 24px;
+    margin-bottom: 30px;
+}
+
+/* Encabezados de sección dentro de las tarjetas */
+.ps-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px; /* Separa los botones del borde superior de la tabla */
+}
+
+/* Envoltorio responsivo para tablas */
+.ps-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+
+/* Tabla personalizada estilo PharmaStock */
+.ps-table-custom {
+    width: 100%;
+    margin-bottom: 0;
+    border-collapse: collapse;
+    white-space: nowrap;
+}
+
+    .ps-table-custom thead th {
+        background-color: #1e3a8a; /* Azul marino institucional */
+        color: #ffffff;
+        font-weight: 600;
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 14px 16px;
+        border: none;
+    }
+
+    .ps-table-custom tbody td {
+        padding: 14px 16px;
+        vertical-align: middle;
+        font-size: 0.9rem;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .ps-table-custom tbody tr:hover {
+        background-color: #f8fafc;
+    }
+
+/* Insignias (Badges) */
+.badge-role {
+    background-color: #e0f2fe;
+    color: #0369a1;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+}
+
+.badge-status-active {
+    background-color: #dcfce7;
+    color: #15803d;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+}
+/* ==========================================
+   VISTA USUARIOS IGUALADA A VISTA REPORTES
+   ========================================== */
+
+/* Layout general del contenido */
+.ps-page-container {
+    padding: 24px 32px;
+}
+
+/* Encabezado de la página sin solapamiento */
+.ps-section-header {
+    margin-bottom: 24px;
+}
+
+.ps-section-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 4px;
+}
+
+.ps-section-subtitle {
+    font-size: 0.9rem;
+    color: #64748b;
+    margin-bottom: 20px;
+}
+
+/* Botón Nuevo Usuario despegado de las tarjetas */
+.ps-header-actions {
+    margin-bottom: 28px;
+}
+
+/* Tarjeta blanca contenedora identical a Reportes */
+.ps-card-report {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    border: 1px solid #e2e8f0;
+    padding: 24px;
+    margin-bottom: 28px;
+}
+
+.ps-card-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 4px;
+}
+
+.ps-card-subtitle {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-bottom: 20px;
+}
+
+/* Envoltorio de la tabla */
+.ps-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid #1e3a8a;
+}
+
+/* Tabla idéntica a la vista Reportes */
+.table-reportes {
+    width: 100%;
+    margin-bottom: 0;
+    border-collapse: collapse;
+    white-space: nowrap;
+    font-family: inherit;
+}
+
+    .table-reportes thead th {
+        background-color: #1e3a8a !important; /* Azul marino institucional exacto */
+        color: #ffffff !important;
+        font-weight: 700;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        padding: 14px 16px;
+        border: none;
+    }
+
+    .table-reportes tbody td {
+        padding: 14px 16px;
+        vertical-align: middle;
+        font-size: 0.875rem;
+        color: #334155;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .table-reportes tbody tr:hover {
+        background-color: #f8fafc;
+    }
+
+/* Tipografía en celdas para mantener la consistencia con Reportes */
+.td-name {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.td-code {
+    font-family: inherit;
+    color: #475569;
+    font-weight: 500;
+}
+
+.td-date {
+    color: #334155;
+    font-size: 0.85rem;
+}
+/* Títulos principales en azul institucional */
+.ps-section-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1e3a8a !important; /* Azul de la marca */
+    margin-bottom: 4px;
+}
+
+.ps-card-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1e3a8a !important; /* Azul de la marca */
+    margin-bottom: 4px;
+}
+
+/* Espaciado del contenedor del botón Actualizar */
+.ps-card-header-actions {
+    margin-bottom: 20px; /* Despega el botón de la cabecera de la tabla */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
