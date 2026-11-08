@@ -27,6 +27,7 @@ b.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).
     o.SlidingExpiration = true;
     o.Cookie.HttpOnly = true;
     o.Cookie.SameSite = SameSiteMode.Strict;
+    o.Cookie.MaxAge = null;
     o.Events.OnRedirectToLogin = c => { if (c.Request.Path.StartsWithSegments("/api")) c.Response.StatusCode = 401; else c.Response.Redirect(c.RedirectUri); return Task.CompletedTask; };
     o.Events.OnRedirectToAccessDenied = c => { if (c.Request.Path.StartsWithSegments("/api")) c.Response.StatusCode = 403; else c.Response.Redirect(c.RedirectUri); return Task.CompletedTask; };
 });
@@ -82,7 +83,10 @@ app.MapPost("/api/login", async (LoginReq r, Db d, HttpContext h) =>
         new Claim(ClaimTypes.Role, role)
     }, CookieAuthenticationDefaults.AuthenticationScheme);
 
-    await h.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(id));
+    await h.SignInAsync(
+         CookieAuthenticationDefaults.AuthenticationScheme,
+         new ClaimsPrincipal(id),
+         new AuthenticationProperties { IsPersistent = false, AllowRefresh = true });
 
     return Results.Ok(new { ok = true, role, home = role == V ? "/Facturacion" : "/Dashboard" });
 });

@@ -12,7 +12,11 @@
     <title>@ViewData["Title"] · PharmaStock</title>
     <link rel="stylesheet" href="@Url.Content("~/css/pharma.css")" />
 </head>
-<body>
+<body> <script>
+            if (!sessionStorage.getItem('pharmastock_auth_tab')) {
+                window.location.replace('/Logout');
+            }
+</script>
 <div class="app">
     <aside class="sidebar" id="sidebar">
         <div class="brand"><div class="logo" data-i="pill"></div><div>PharmaStock<small>GESTIÓN FARMACÉUTICA</small></div></div>

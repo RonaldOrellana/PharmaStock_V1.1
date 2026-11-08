@@ -378,6 +378,7 @@
                     const r = await PS.api('/api/login', { u, p });
 
                     if (r.ok && r.data && r.data.ok) {
+                        sessionStorage.setItem('pharmastock_auth_tab', '1');
                         window.location.replace(r.data.home || '/Dashboard');
                     } else {
                         userInput.classList.add('bad');
