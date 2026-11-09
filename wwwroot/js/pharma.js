@@ -131,28 +131,179 @@ const PS = (() => {
         w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:system-ui,sans-serif;padding:24px;color:#0f172a}h2{color:#1e3a8a;margin:0}table{width:100%;border-collapse:collapse;margin-top:12px}th{background:#1e3a8a;color:#fff;text-align:left;padding:7px}td{padding:6px 7px;border-bottom:1px solid #e2e8f0}.n{text-align:right}.crit td{background:#fef2f2;color:#991b1b}.warn td{background:#fffbeb;color:#92400e}.t{font-size:18px;font-weight:700;text-align:right;margin-top:10px}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>${html}<script>onload=()=>setTimeout(print,300)<\/script>`);
         w.document.close();
     };
-    /* ---- Códigos de barras: Code 128-B (ASCII imprimible), sin dependencias ---- */
+    /* ---- Códigos de barras: EAN-13 / Code 128 (B y C), sin dependencias ---- */
     const C128 = ['212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213', '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132', '221231', '213212', '223112', '312131', '311222', '321122', '321221', '312212', '322112', '322211', '212123', '212321', '232121', '111323', '131123', '131321', '112313', '132113', '132311', '211313', '231113', '231311', '112133', '112331', '132131', '113123', '113321', '133121', '313121', '211331', '231131', '213113', '213311', '213131', '311123', '311321', '331121', '312113', '312311', '332111', '314111', '221411', '431111', '111224', '111422', '121124', '121421', '141122', '141221', '112214', '112412', '122114', '122411', '142112', '142211', '241211', '221114', '413111', '241112', '134111', '111242', '121142', '121241', '114212', '124112', '124211', '411212', '421112', '421211', '212141', '214121', '412121', '111143', '111341', '131141', '114113', '114311', '411113', '411311', '113141', '114131', '311141', '411131', '211412', '211214', '211232', '2331112'];
     const code128 = text => {
         const s = String(text ?? '').replace(/[^\x20-\x7E]/g, '?');
-        const vals = [104];                                            // START B
-        for (const ch of s) vals.push(ch.charCodeAt(0) - 32);
-        let sum = 104; for (let i = 1; i < vals.length; i++) sum += vals[i] * i;
-        vals.push(sum % 103);                                          // dígito de control
-        return vals;
-    };
-    const barcodeSvg = (text, { height = 50, module = 2, quiet = 10, label = true } = {}) => {
-        let bars = '', x = quiet * module;
-        for (const v of code128(text).concat(106)) {
-            const p = C128[v];
-            for (let i = 0; i < p.length; i++) {
-                const w = +p[i] * module;
-                if (i % 2 === 0) bars += `M${x} 0h${w}v${height}h-${w}z`;
-                x += w;
+
+        let vals;
+
+        // Code 128-C: números pares, dos dígitos por símbolo.
+        if (/^\d{4,}$/.test(s) && s.length % 2 === 0) {
+            vals = [105];
+
+            for (let i = 0; i < s.length; i += 2) {
+                vals.push(parseInt(s.slice(i, i + 2), 10));
+            }
+
+            // Código antiguo de 13 dígitos:
+            // 12 dígitos en Code C y el último en Code B.
+            // Esto reduce el ancho sin alterar el número.
+        } else if (/^\d{13}$/.test(s)) {
+            vals = [105];
+
+            for (let i = 0; i < 12; i += 2) {
+                vals.push(parseInt(s.slice(i, i + 2), 10));
+            }
+
+            vals.push(100); // Cambio a Code B.
+            vals.push(s.charCodeAt(12) - 32);
+
+            // Texto general: Code 128-B.
+        } else {
+            vals = [104];
+
+            for (const ch of s) {
+                vals.push(ch.charCodeAt(0) - 32);
             }
         }
-        const W = x + quiet * module, H = height + (label ? 16 : 0);
-        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Código de barras ${esc(text)}" style="max-width:100%;height:auto;background:#fff"><path d="${bars}" fill="#000" shape-rendering="crispEdges"/>${label ? `<text x="${W / 2}" y="${height + 13}" text-anchor="middle" font-family="monospace" font-size="12" fill="#000">${esc(text)}</text>` : ''}</svg>`;
+
+        // Cálculo del dígito verificador Code 128.
+        let sum = vals[0];
+
+        for (let i = 1; i < vals.length; i++) {
+            sum += vals[i] * i;
+        }
+
+        vals.push(sum % 103);
+
+        return vals;
+    };
+    /* EAN-13 real (95 módulos): lo que la cámara lee mejor. Se usa cuando el código tiene 13 dígitos con verificador válido */
+    const EAN_L = ['0001101', '0011001', '0010011', '0111101', '0100011', '0110001', '0101111', '0111011', '0110111', '0001011'];
+    const EAN_G = ['0100111', '0110011', '0011011', '0100001', '0011101', '0111001', '0000101', '0010001', '0001001', '0010111'];
+    const EAN_R = ['1110010', '1100110', '1101100', '1000010', '1011100', '1001110', '1010000', '1000100', '1001000', '1110100'];
+    const EAN_P = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+    const isEan13 = t => /^\d{13}$/.test(t) && ean13Check(t.slice(0, 12)) === +t[12];
+    const ean13Bits = t => {
+        const par = EAN_P[+t[0]];
+        let b = '101';
+        for (let i = 0; i < 6; i++) b += (par[i] === 'L' ? EAN_L : EAN_G)[+t[i + 1]];
+        b += '01010';
+        for (let i = 7; i < 13; i++) b += EAN_R[+t[i]];
+        return b + '101';
+    };
+    const barcodeSvg = (
+        text,
+        {
+            height = 58,
+            module = 2.5,
+            quiet = 12,
+            label = true
+        } = {}
+    ) => {
+        text = String(text ?? '').trim();
+
+        if (!text) {
+            return '';
+        }
+
+        let bars = '';
+        let x = quiet * module;
+        let formato = '';
+
+        // EAN-13 solamente cuando el número tiene verificador válido.
+        if (isEan13(text)) {
+            formato = 'EAN-13';
+
+            const bits = ean13Bits(text);
+
+            for (let i = 0; i < bits.length;) {
+                let j = i;
+
+                while (j < bits.length && bits[j] === bits[i]) {
+                    j++;
+                }
+
+                const w = (j - i) * module;
+
+                if (bits[i] === '1') {
+                    bars += `M${x} 0h${w}v${height}h-${w}z`;
+                }
+
+                x += w;
+                i = j;
+            }
+        } else {
+            // Los códigos antiguos o no válidos como EAN-13
+            // se imprimen como Code 128 sin modificar sus números.
+            formato = 'Code 128';
+
+            const values = code128(text).concat(106);
+
+            for (const v of values) {
+                const pattern = C128[v];
+
+                for (let i = 0; i < pattern.length; i++) {
+                    const w = Number(pattern[i]) * module;
+
+                    if (i % 2 === 0) {
+                        bars += `M${x} 0h${w}v${height}h-${w}z`;
+                    }
+
+                    x += w;
+                }
+            }
+        }
+
+        const W = x + quiet * module;
+        const H = height + (label ? 19 : 0);
+
+        return `
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 ${W} ${H}"
+            width="${W}"
+            height="${H}"
+            role="img"
+            aria-label="${formato}: ${esc(text)}"
+            style="
+                display:block;
+                max-width:100%;
+                height:auto;
+                margin:0 auto;
+                background:#fff;
+                shape-rendering:crispEdges;
+            "
+        >
+            <rect
+                x="0"
+                y="0"
+                width="${W}"
+                height="${H}"
+                fill="#fff"
+            />
+
+            <path
+                d="${bars}"
+                fill="#000"
+                shape-rendering="crispEdges"
+            />
+
+            ${label
+                ? `<text
+                        x="${W / 2}"
+                        y="${height + 15}"
+                        text-anchor="middle"
+                        font-family="Arial, sans-serif"
+                        font-size="13"
+                        font-weight="600"
+                        fill="#000"
+                    >${esc(text)}</text>`
+                : ''
+            }
+        </svg>
+    `;
     };
     /* EAN-13 de uso interno (prefijo 2): 2 + correlativo de 11 dígitos + dígito verificador */
     const ean13Check = d12 => { let s = 0; for (let i = 0; i < 12; i++) s += (+d12[i]) * (i % 2 ? 3 : 1); return (10 - (s % 10)) % 10; };
@@ -164,8 +315,92 @@ const PS = (() => {
     };
     /* Etiquetas imprimibles: 'copies' etiquetas de 62 mm con nombre, código de barras y precio */
     const labelsHtml = (m, copies) => {
-        const one = `<div class="lb"><div class="ln">${esc(m.n)}</div>${barcodeSvg(m.code, { height: 46, module: 2, label: true })}<div class="lp">${money(m.price)}</div></div>`;
-        return `<style>\x40page{margin:8mm}.wrap{display:flex;flex-wrap:wrap;gap:6px}.lb{width:62mm;border:1px dashed #94a3b8;padding:6px 8px;text-align:center;break-inside:avoid;font-family:system-ui,sans-serif}.ln{font-size:11px;font-weight:700;line-height:1.2;margin-bottom:3px;max-height:2.4em;overflow:hidden}.lp{font-size:14px;font-weight:700;margin-top:2px}.lb svg{width:100%;height:auto}</style><div class="wrap">${one.repeat(copies)}</div>`;
+        const codigo = String(m.code ?? '').trim();
+
+        const one = `
+        <div class="lb">
+            <div class="ln">${esc(m.n)}</div>
+
+            <div class="barcode-container">
+                ${barcodeSvg(codigo, {
+            height: 62,
+            module: 2.5,
+            quiet: 12,
+            label: true
+        })}
+            </div>
+
+            <div class="lp">${money(m.price)}</div>
+        </div>
+    `;
+
+        return `
+        <style>
+            @page {
+                margin: 8mm;
+            }
+
+            * {
+                box-sizing: border-box;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            body {
+                background: #fff;
+                font-family: Arial, sans-serif;
+            }
+
+            .wrap {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .lb {
+                width: 62mm;
+                min-height: 35mm;
+                border: 1px dashed #94a3b8;
+                padding: 7px;
+                text-align: center;
+                background: #fff;
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+
+            .ln {
+                font-size: 11px;
+                font-weight: 700;
+                line-height: 1.3;
+                margin-bottom: 5px;
+                max-height: 2.6em;
+                overflow: hidden;
+            }
+
+            .barcode-container {
+                width: 100%;
+                overflow: hidden;
+            }
+
+            .barcode-container svg {
+                display: block;
+                width: 100%;
+                max-width: 100%;
+                height: auto;
+                margin: 0 auto;
+            }
+
+            .lp {
+                font-size: 14px;
+                font-weight: 700;
+                margin-top: 3px;
+            }
+        </style>
+
+        <div class="wrap">
+            ${one.repeat(copies)}
+        </div>
+    `;
     };
     const printLabels = (m, copies = 1) => printHtml('Etiquetas · ' + m.n, labelsHtml(m, Math.max(1, Math.min(200, parseInt(copies, 10) || 1))));
     return { NAV, ico, esc, money, iso, midnight, daysTo, fmtDate, lotState, load, reload, boot, setUser, toast, alertBox, api, banner, stockBadge, lotBadge, daysTxt, can, role, cfg, printHtml, barcodeSvg, code128, nextBarcode, ean13Check, printLabels, renderBell, get S() { return S; }, get user() { return user; } };

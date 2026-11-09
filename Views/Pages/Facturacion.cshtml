@@ -10,39 +10,59 @@
 </div>
 
 <div class="grid g-5-7">
-    <!-- Sección Izquierda: Selección de Productos -->
     <div class="card c-green">
-        <h3 data-i="plus"> Agregar producto</h3>
+        <h3 data-i="plus">Agregar producto</h3>
+
         <div class="field">
             <label for="q">Buscar por nombre o código de barras</label>
             <input id="q" placeholder="Escanee el código o escriba… (Enter agrega)" autocomplete="off" autofocus />
         </div>
-        <button type="button" class="btn btn-out btn-block" id="cam">📷 Escanear con la cámara</button>
+
+        <button type="button" class="btn btn-out btn-block" id="cam">
+            📷 Escanear con la cámara
+        </button>
+
         <div id="camBox" class="hide" style="margin:.6rem 0">
-            <div id="reader" style="width:100%"></div>
-            <button type="button" class="btn btn-red btn-block mt" id="camStop">Cerrar cámara</button>
+            <div id="reader" style="width:100%;max-width:100%"></div>
+
+            <p id="camStatus" class="muted" aria-live="polite" style="margin:.4rem 0;font-size:.85rem">
+                Apunte al código de barras del PDF y manténgalo enfocado.
+            </p>
+
+            <button type="button" class="btn btn-red btn-block mt" id="camStop">
+                Cerrar cámara
+            </button>
         </div>
+
         <div class="field">
             <label for="med">Medicamento</label>
             <select id="med"></select>
         </div>
+
         <div class="field" id="lotWrap">
             <label for="lot">Lote</label>
             <select id="lot"></select>
         </div>
+
         <div class="field">
             <label for="qty">Cantidad</label>
             <input id="qty" type="number" min="1" step="1" value="1" />
         </div>
+
         <div id="msg"></div>
-        <button class="btn btn-green btn-block btn-lg" id="add" disabled data-i="cart"> Agregar al carrito</button>
+
+        <button class="btn btn-green btn-block btn-lg" id="add" disabled data-i="cart">
+            Agregar al carrito
+        </button>
+
         <div id="info" class="mt"></div>
     </div>
 
-    <!-- Sección Derecha: Carrito y Procesamiento de Pago -->
     <div class="card c-blue">
-        <h3 data-i="cart"> Carrito</h3>
+        <h3 data-i="cart">Carrito</h3>
+
         <div id="cartMsg"></div>
+
         <div class="tw">
             <table>
                 <thead>
@@ -59,12 +79,12 @@
             </table>
         </div>
 
-        <!-- Datos del Cliente y Opciones de Correo -->
         <div class="grid g2 mt">
             <div class="field">
                 <label for="cli">Cliente (opcional)</label>
                 <input id="cli" placeholder="Consumidor final" />
             </div>
+
             <div class="totals">
                 <div><span>Subtotal</span><span id="sub">$0.00</span></div>
                 <div><span>IVA 13%</span><span id="iva">$0.00</span></div>
@@ -72,215 +92,855 @@
             </div>
         </div>
 
-        <!-- Opciones para Envío de Factura por Correo -->
-        <div class="card mt" style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px;">
+        <div class="card mt" style="background:rgba(255,255,255,.05);padding:10px;border-radius:6px">
             <div class="field">
                 <label for="emailCliente">Correo electrónico para factura (opcional)</label>
                 <input type="email" id="emailCliente" class="form-control" placeholder="ejemplo@correo.com" />
             </div>
+
             <div class="form-check mt-2">
                 <input type="checkbox" id="enviarCorreo" class="form-check-input" />
-                <label for="enviarCorreo" class="form-check-label">Enviar factura digital por correo</label>
+                <label for="enviarCorreo" class="form-check-label">
+                    Enviar factura digital por correo
+                </label>
             </div>
         </div>
 
-        <button class="btn btn-green btn-lg btn-block mt" id="pay" disabled data-i="check"> Facturar y emitir comprobante</button>
+        <button class="btn btn-green btn-lg btn-block mt" id="pay" disabled data-i="check">
+            Facturar y emitir comprobante
+        </button>
     </div>
 </div>
 
 @section Scripts {
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
     <script>
-        PS.boot(S => {
-            const $ = id => document.getElementById(id), esc = PS.esc, vend = PS.role() === 'Vendedor';
-            let cart = [], plan = null;
+        PS.boot(async S => {
+            const $ = id => document.getElementById(id);
+            const esc = PS.esc;
+            const vend = PS.role() === 'Vendedor';
+
+            let cart = [];
+            let plan = null;
+            let scanner = null;
+            let busy = false;
+            let lastDecoded = '';
+            let paymentInProgress = false;
 
             if (vend) $('lotWrap').classList.add('hide');
 
-            const reserved = id => cart.filter(c => c.lot === id).reduce((s, c) => s + c.q, 0);
-            const avail = l => l.cur - reserved(l.id);
+            // =====================================================
+            // NORMALIZACIÓN Y BÚSQUEDA DE CÓDIGOS
+            // =====================================================
+
+            const normalizeBarcode = value => String(value ?? '')
+                .normalize('NFKC')
+                .replace(/[\u200B-\u200D\uFEFF]/g, '')
+                .replace(/\s+/g, '')
+                .trim();
+
+            const findMedicationByBarcode = raw => {
+                const code = normalizeBarcode(raw).toUpperCase();
+                if (!code) return null;
+
+                const meds = S.meds.filter(m => m.on);
+
+                // Coincidencia exacta: conserva ceros iniciales.
+                let found = meds.find(m =>
+                    normalizeBarcode(m.code).toUpperCase() === code
+                );
+
+                if (found) return found;
+
+                // Compatibilidad UPC-A de 12 dígitos con EAN-13 iniciado en cero.
+                if (/^\d{12}$/.test(code)) {
+                    found = meds.find(m =>
+                        normalizeBarcode(m.code) === '0' + code
+                    );
+                    if (found) return found;
+                }
+
+                // Compatibilidad inversa EAN-13 con UPC-A.
+                if (/^0\d{12}$/.test(code)) {
+                    found = meds.find(m =>
+                        normalizeBarcode(m.code) === code.substring(1)
+                    );
+                    if (found) return found;
+                }
+
+                return null;
+            };
+
+            // =====================================================
+            // INVENTARIO Y PRODUCTOS
+            // =====================================================
+
+            const reserved = id =>
+                cart.filter(c => Number(c.lot) === Number(id))
+                    .reduce((sum, c) => sum + c.q, 0);
+
+            const avail = lot => Math.max(0, Number(lot.cur || 0) - reserved(lot.id));
 
             const fillMeds = () => {
-                const t = $('q').value.trim().toLowerCase();
-                const list = S.meds.filter(m => m.on && (!t || m.n.toLowerCase().includes(t) || m.code.toLowerCase().includes(t)));
-                $('med').innerHTML = '<option value="">— Seleccione —</option>' + list.map(m => `<option value="${m.id}">${esc(m.n)} (${m.code})</option>`).join('');
-                const exact = list.find(m => m.code.toLowerCase() === t);
-                if (exact || (list.length === 1 && t)) $('med').value = (exact || list[0]).id;
-                fillLots(); check();
-            };
+                const term = normalizeBarcode($('q').value).toLowerCase();
 
-            const fillLots = () => {
-                const m = S.med(+$('med').value);
-                $('lot').innerHTML = '<option value="">Automático · PEPS (recomendado)</option>' + (m ? m.lots.filter(l => l.cur > 0).map(l => `<option value="${l.id}">${esc(l.num)} · vence ${l.exp} · ${l.cur} u.${l.st.k === 'exp' ? ' · VENCIDO' : ''}</option>`).join('') : '');
-            };
+                const list = S.meds.filter(m =>
+                    m.on &&
+                    (
+                        !term ||
+                        String(m.n ?? '').toLowerCase().includes(term) ||
+                        normalizeBarcode(m.code).toLowerCase().includes(term)
+                    )
+                );
 
-            const check = () => {
-                const m = S.med(+$('med').value), q = parseInt($('qty').value, 10), forced = +$('lot').value;
-                plan = null; $('info').innerHTML = '';
-                if (!m) { $('msg').innerHTML = ''; $('add').disabled = true; return; }
-                let html = '', block = false;
-                if (!Number.isInteger(q) || q <= 0) { html = PS.banner('amber', 'alert', 'Cantidad inválida', 'Ingrese un número entero mayor a 0.'); block = true; }
-                const valid = m.valid.filter(l => avail(l) > 0), expStock = m.lots.filter(l => l.st.k === 'exp' && l.cur > 0);
+                $('med').innerHTML =
+                    '<option value="">— Seleccione —</option>' +
+                    list.map(m =>
+                        `<option value="${m.id}">${esc(m.n)} (${esc(m.code)})</option>`
+                    ).join('');
 
-                if (!block && forced) {
-                    const l = S.lots.find(x => x.id === forced);
-                    if (l.st.k === 'exp') { html = PS.banner('red', 'x', 'Lote vencido: venta bloqueada (RN-01)', `El lote <b>${esc(l.num)}</b> venció el ${PS.fmtDate(l.exp)}. No puede venderse; retírelo del anaquel.`); block = true; }
-                    else if (valid[0] && valid[0].id !== l.id) { html = PS.banner('amber', 'alert', 'Debe aplicarse PEPS', `Primero debe salir el lote <b>${esc(valid[0].num)}</b> (vence ${PS.fmtDate(valid[0].exp)}).`); block = true; }
-                    else if (avail(l) < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y el lote ${esc(l.num)} solo tiene ${Math.max(avail(l), 0)} disponibles.`); block = true; }
-                    else plan = [{ l, q }];
-                } else if (!block) {
-                    const total = valid.reduce((s, l) => s + avail(l), 0);
-                    if (total < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y solo hay ${total} en lotes vigentes.`); block = true; }
-                    else {
-                        let r = q; plan = [];
-                        for (const l of valid) { const t = Math.min(r, avail(l)); if (t > 0) plan.push({ l, q: t }); r -= t; if (r <= 0) break; }
-                        html = PS.banner('green', 'check', 'PEPS sugerido', plan.map(p => `<b>${p.q}</b> u. del lote <b>${esc(p.l.num)}</b> (vence ${PS.fmtDate(p.l.exp)})`).join(' + '));
-                    }
+                const exact = list.find(m =>
+                    normalizeBarcode(m.code).toLowerCase() === term
+                );
+
+                if (exact || (list.length === 1 && term)) {
+                    $('med').value = String((exact || list[0]).id);
                 }
 
-                if (expStock.length) html += PS.banner('red', 'x', 'Lotes vencidos bloqueados (RN-01)', expStock.map(l => `${esc(l.num)} (${l.cur} u.)`).join(', ') + ' no se incluyen en la venta.');
-                $('msg').innerHTML = html; $('add').disabled = block || !plan;
-
-                if (!vend) {
-                    const subs = S.meds.filter(x => x.on && x.cat === m.cat && x.id !== m.id && x.validStock > 0);
-                    $('info').innerHTML = `<h3 style="font-size:.9rem">Lotes de ${esc(m.n)}</h3><div class="tw"><table><thead><tr><th>Lote</th><th>Vence</th><th class="num">Disp.</th><th>Estado</th></tr></thead><tbody>${m.lots.map(l => `<tr class="${l.st.k === 'exp' ? 'r-crit' : l.st.k === 'soon' ? 'r-warn' : ''}"><td>${esc(l.num)}${m.valid[0] && m.valid[0].id === l.id ? ' <span class="badge b-info">PEPS</span>' : ''}</td><td>${l.exp}</td><td class="num">${l.cur}</td><td>${PS.lotBadge(l)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-row">Sin lotes</td></tr>'}</tbody></table></div>
-                        <p class="muted" style="margin:.7rem 0 .3rem">Sustitutos (${esc(m.cat)}):</p><div class="chips">${subs.map(s => `<span class="chip" data-s="${s.id}">${esc(s.n)} · ${s.validStock} u.</span>`).join('') || '<span class="muted">Sin sustitutos con existencias</span>'}</div>`;
-                    document.querySelectorAll('[data-s]').forEach(c => c.onclick = () => { $('med').value = c.dataset.s; fillLots(); check(); });
-                }
-            };
-
-            const renderCart = () => {
-                let sub = 0, bad = false;
-                $('cart').innerHTML = cart.map((c, i) => {
-                    const l = S.lots.find(x => x.id === c.lot), p = l.m.price, st = p * c.q;
-                    sub += st;
-                    const issue = l.st.k === 'exp' || l.cur < c.q; bad = bad || issue;
-                    return `<tr class="${issue ? 'r-crit' : ''}"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}<br>${PS.lotBadge(l)}</td><td class="num">${c.q}</td><td class="num">${PS.money(p)}</td><td class="num">${PS.money(st)}</td><td><button class="btn btn-red ib" data-d="${i}" title="Quitar">${PS.ico('trash')}</button></td></tr>`;
-                }).join('') || '<tr><td colspan="6" class="empty-row">El carrito está vacío</td></tr>';
-
-                const iva = Math.round(sub * 13) / 100;
-                $('sub').textContent = PS.money(sub);
-                $('iva').textContent = PS.money(iva);
-                $('tot').textContent = PS.money(sub + iva);
-                $('cartMsg').innerHTML = bad ? PS.banner('red', 'x', 'Carrito bloqueado', 'Hay lotes vencidos o sin existencias. Quite esas líneas para poder facturar.') : '';
-                $('pay').disabled = bad || !cart.length;
-                document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { cart.splice(+b.dataset.d, 1); renderCart(); check(); });
-            };
-
-            $('q').oninput = fillMeds;
-            $('med').onchange = () => { fillLots(); check(); };
-            $('lot').onchange = check;
-            $('qty').oninput = check;
-
-            // Agrega 1 unidad por código leído (respeta PEPS, vencidos y existencias)
-            const addByCode = raw => {
-                const t = raw.trim().toLowerCase();
-                if (!t) return false;
-                const m = S.meds.find(x => (x.code || '').toLowerCase() === t);
-                if (!m) { PS.toast('warning', 'Código no encontrado: ' + raw); return false; }
-                if (!m.on) { PS.toast('warning', 'El medicamento está inactivo'); return false; }
-                $('med').value = m.id; fillLots(); $('lot').value = ''; $('qty').value = 1; check();
-                if ($('add').disabled) return false;            // el aviso de arriba explica el motivo (vencido, sin stock, PEPS…)
-                $('add').click(); $('q').value = ''; fillMeds();
-                return true;
-            };
-
-            // Lector físico USB/Bluetooth: escribe el código + Enter
-            $('q').onkeydown = e => {
-                if (e.key !== 'Enter') return;
-                e.preventDefault();
-                if (addByCode($('q').value)) $('q').focus(); else $('q').select();
-            };
-
-            // Cámara (PC o celular)
-            let scanner = null, busy = false;
-            const stopCam = async () => {
-                if (scanner) { try { await scanner.stop(); scanner.clear(); } catch { } scanner = null; }
-                $('camBox').classList.add('hide'); $('cam').classList.remove('hide');
-            };
-            $('cam').onclick = async () => {
-                if (!window.Html5Qrcode) return PS.alertBox('Cámara no disponible', 'No se pudo cargar el lector de cámara (revise la conexión a internet).', 'warning');
-                $('camBox').classList.remove('hide'); $('cam').classList.add('hide');
-                scanner = new Html5Qrcode('reader');
-                try {
-                    await scanner.start({ facingMode: 'environment' },
-                        { fps: 10, qrbox: { width: 260, height: 110 }, formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A] },
-                        txt => { if (busy) return; busy = true; addByCode(txt); setTimeout(() => busy = false, 1500); });
-                } catch (err) {
-                    await stopCam();
-                    PS.alertBox('No se pudo abrir la cámara', 'Permita el acceso a la cámara. En el celular la página debe abrirse con HTTPS; en la PC funciona desde localhost.', 'warning');
-                }
-            };
-            $('camStop').onclick = stopCam;
-
-            $('add').onclick = () => {
-                plan.forEach(p => {
-                    const e = cart.find(c => c.lot === p.l.id);
-                    e ? e.q += p.q : cart.push({ lot: p.l.id, q: p.q });
-                });
-                PS.toast('success', 'Producto agregado');
-                $('qty').value = 1;
-                renderCart();
+                fillLots();
                 check();
             };
 
-            $('pay').onclick = async () => {
-                $('pay').disabled = true;
-                const snapshot = cart.map(c => { const l = S.lots.find(x => x.id === c.lot); return { n: l.m.n, lote: l.num, q: c.q, p: l.m.price }; });
-                const cli = $('cli').value.trim() || 'Consumidor final';
-                const email = $('emailCliente').value.trim();
-                const enviarCorreo = $('enviarCorreo').checked;
+            const fillLots = () => {
+                const medId = Number($('med').value);
+                const m = S.med(medId);
 
-                // Validación básica de correo si la casilla está marcada
-                if (enviarCorreo && !email) {
-                    PS.alertBox('Atención', 'Por favor ingrese un correo electrónico válido si desea enviar la factura por correo.');
-                    $('pay').disabled = false;
-                    return;
-                }
-
-                // Envío del payload actualizado a la API
-                const r = await PS.api('/api/sales', {
-                    cli: cli,
-                    email: email,
-                    sendEmail: enviarCorreo,
-                    items: cart.map(c => ({ lot: c.lot, q: c.q }))
-                });
-
-                if (!r.ok) {
-                    PS.alertBox('Venta rechazada', r.data.error || 'No se pudo facturar.');
-                    $('pay').disabled = false;
-                    return;
-                }
-
-                const d = r.data;
-                let mensajeExito = `Total cobrado: ${PS.money(d.total)}`;
-                if (enviarCorreo && email) {
-                    mensajeExito += `<br><small class="text-muted">Se envió una copia digital a <b>${esc(email)}</b></small>`;
-                }
-
-                const res = await Swal.fire({
-                    icon: 'success',
-                    title: `Factura ${d.num}`,
-                    html: mensajeExito,
-                    showDenyButton: true,
-                    confirmButtonText: 'Listo',
-                    denyButtonText: 'Imprimir comprobante PDF',
-                    confirmButtonColor: '#00a86b'
-                });
-
-                if (res.isDenied) {
-                    PS.printHtml('Comprobante ' + d.num, `<h2>PharmaStock · Comprobante ${d.num}</h2><p>Cliente: ${esc(cli)} · ${new Date().toLocaleString('es-SV')} · Atendió: ${esc(PS.user.name)}</p><table><tr><th>Producto</th><th>Lote</th><th class="n">Cant.</th><th class="n">P.U.</th><th class="n">Subtotal</th></tr>${snapshot.map(i => `<tr><td>${esc(i.n)}</td><td>${esc(i.lote)}</td><td class="n">${i.q}</td><td class="n">${PS.money(i.p)}</td><td class="n">${PS.money(i.p * i.q)}</td></tr>`).join('')}</table><p class="n">Subtotal ${PS.money(d.sub)} · IVA ${PS.money(d.iva)}</p><div class="t">TOTAL ${PS.money(d.total)}</div>`);
-                }
-
-                // Limpieza de campos al finalizar
-                cart = [];
-                $('cli').value = '';
-                $('emailCliente').value = '';
-                $('enviarCorreo').checked = false;
-                await PS.reload();
-                fillMeds();
-                renderCart();
+                $('lot').innerHTML =
+                    '<option value="">Automático · PEPS (recomendado)</option>' +
+                    (
+                        m
+                            ? m.lots
+                                .filter(l => Number(l.cur) > 0)
+                                .map(l =>
+                                    `<option value="${l.id}">
+                                                ${esc(l.num)} · vence ${esc(l.exp)} · ${l.cur} u.
+                                                ${l.st.k === 'exp' ? ' · VENCIDO' : ''}
+                                            </option>`
+                                ).join('')
+                            : ''
+                    );
             };
+
+            // =====================================================
+            // VALIDACIÓN DE VENTA Y PEPS
+            // =====================================================
+
+            const check = () => {
+                const m = S.med(Number($('med').value));
+                const q = Number($('qty').value);
+                const forcedId = Number($('lot').value);
+
+                plan = null;
+                $('info').innerHTML = '';
+
+                if (!m) {
+                    $('msg').innerHTML = '';
+                    $('add').disabled = true;
+                    return;
+                }
+
+                let html = '';
+                let block = false;
+
+                if (!Number.isInteger(q) || q <= 0) {
+                    html = PS.banner(
+                        'amber', 'alert', 'Cantidad inválida',
+                        'Ingrese un número entero mayor a 0.'
+                    );
+                    block = true;
+                }
+
+                // S.med deriva los lotes ordenados por vencimiento.
+                // Los vencidos nunca se consideran disponibles.
+                const valid = m.valid
+                    .filter(l => l.st.k !== 'exp' && avail(l) > 0)
+                    .sort((a, b) => a.exp.localeCompare(b.exp));
+
+                const expiredLots = m.lots.filter(
+                    l => l.st.k === 'exp' && Number(l.cur) > 0
+                );
+
+                if (!block && forcedId) {
+                    const lot = S.lots.find(l => Number(l.id) === forcedId);
+
+                    if (!lot || Number(lot.med) !== Number(m.id)) {
+                        html = PS.banner(
+                            'red', 'alert', 'Lote inválido',
+                            'El lote seleccionado no pertenece al medicamento.'
+                        );
+                        block = true;
+                    }
+                    else if (lot.st.k === 'exp') {
+                        html = PS.banner(
+                            'red', 'x',
+                            'Lote vencido: venta bloqueada (RN-01)',
+                            `El lote <b>${esc(lot.num)}</b> venció el ${PS.fmtDate(lot.exp)}.`
+                        );
+                        block = true;
+                    }
+                    else if (valid.length && Number(valid[0].id) !== Number(lot.id)) {
+                        html = PS.banner(
+                            'amber', 'alert', 'Debe aplicarse PEPS',
+                            `Primero debe salir el lote <b>${esc(valid[0].num)}</b> (vence ${PS.fmtDate(valid[0].exp)}).`
+                        );
+                        block = true;
+                    }
+                    else if (avail(lot) < q) {
+                        html = PS.banner(
+                            'red', 'alert',
+                            'Existencias insuficientes (RN-02)',
+                            `Pidió ${q} u. y el lote ${esc(lot.num)} solo tiene ${avail(lot)} disponibles.`
+                        );
+                        block = true;
+                    }
+                    else {
+                        plan = [{ l: lot, q }];
+                    }
+                }
+                else if (!block) {
+                    const total = valid.reduce((sum, l) => sum + avail(l), 0);
+
+                    if (total < q) {
+                        html = PS.banner(
+                            'red', 'alert',
+                            'Existencias insuficientes (RN-02)',
+                            `Pidió ${q} u. y solo hay ${total} en lotes vigentes.`
+                        );
+                        block = true;
+                    }
+                    else {
+                        let remaining = q;
+                        plan = [];
+
+                        for (const lot of valid) {
+                            const take = Math.min(remaining, avail(lot));
+
+                            if (take > 0) {
+                                plan.push({ l: lot, q: take });
+                                remaining -= take;
+                            }
+
+                            if (remaining <= 0) break;
+                        }
+
+                        html = PS.banner(
+                            'green', 'check', 'PEPS sugerido',
+                            plan.map(p =>
+                                `<b>${p.q}</b> u. del lote <b>${esc(p.l.num)}</b> (vence ${PS.fmtDate(p.l.exp)})`
+                            ).join(' + ')
+                        );
+                    }
+                }
+
+                if (expiredLots.length) {
+                    html += PS.banner(
+                        'red', 'x',
+                        'Lotes vencidos bloqueados (RN-01)',
+                        expiredLots.map(l =>
+                            `${esc(l.num)} (${l.cur} u.)`
+                        ).join(', ') + ' no se incluyen en la venta.'
+                    );
+                }
+
+                $('msg').innerHTML = html;
+                $('add').disabled = block || !plan || !plan.length;
+
+                if (!vend) {
+                    const substitutes = S.meds.filter(x =>
+                        x.on &&
+                        x.cat === m.cat &&
+                        x.id !== m.id &&
+                        x.validStock > 0
+                    );
+
+                    $('info').innerHTML = `
+                                <h3 style="font-size:.9rem">Lotes de ${esc(m.n)}</h3>
+                                <div class="tw">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Lote</th>
+                                                <th>Vence</th>
+                                                <th class="num">Disp.</th>
+                                                <th>Estado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${m.lots.map(l => `
+                                                <tr class="${l.st.k === 'exp' ? 'r-crit' : l.st.k === 'soon' ? 'r-warn' : ''}">
+                                                    <td>
+                                                        ${esc(l.num)}
+                                                        ${valid[0] && Number(valid[0].id) === Number(l.id)
+                            ? ' <span class="badge b-info">PEPS</span>'
+                            : ''}
+                                                    </td>
+                                                    <td>${esc(l.exp)}</td>
+                                                    <td class="num">${avail(l)}</td>
+                                                    <td>${PS.lotBadge(l)}</td>
+                                                </tr>
+                                            `).join('') || `
+                                                <tr><td colspan="4" class="empty-row">Sin lotes</td></tr>
+                                            `}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p class="muted" style="margin:.7rem 0 .3rem">
+                                    Sustitutos (${esc(m.cat)}):
+                                </p>
+                                <div class="chips">
+                                    ${substitutes.map(s => `
+                                        <span class="chip" data-s="${s.id}">
+                                            ${esc(s.n)} · ${s.validStock} u.
+                                        </span>
+                                    `).join('') || '<span class="muted">Sin sustitutos con existencias</span>'}
+                                </div>
+                            `;
+
+                    document.querySelectorAll('[data-s]').forEach(chip => {
+                        chip.onclick = () => {
+                            $('med').value = chip.dataset.s;
+                            $('lot').value = '';
+                            fillLots();
+                            check();
+                        };
+                    });
+                }
+            };
+
+            // =====================================================
+            // CARRITO
+            // =====================================================
+
+            const renderCart = () => {
+                let subtotal = 0;
+                let bad = false;
+
+                $('cart').innerHTML = cart.map((c, index) => {
+                    const lot = S.lots.find(x => Number(x.id) === Number(c.lot));
+
+                    if (!lot || !lot.m) {
+                        bad = true;
+                        return '';
+                    }
+
+                    const price = Number(lot.m.price || 0);
+                    const lineTotal = price * c.q;
+                    subtotal += lineTotal;
+
+                    const issue =
+                        lot.st.k === 'exp' ||
+                        Number(lot.cur) < c.q ||
+                        c.q <= 0;
+
+                    bad = bad || issue;
+
+                    return `
+                                <tr class="${issue ? 'r-crit' : ''}">
+                                    <td><b>${esc(lot.m.n)}</b></td>
+                                    <td>${esc(lot.num)}<br>${PS.lotBadge(lot)}</td>
+                                    <td class="num">${c.q}</td>
+                                    <td class="num">${PS.money(price)}</td>
+                                    <td class="num">${PS.money(lineTotal)}</td>
+                                    <td>
+                                        <button type="button" class="btn btn-red ib" data-d="${index}" title="Quitar">
+                                            ${PS.ico('trash')}
+                                        </button>
+                                    </td>
+                                </tr>
+                            `;
+                }).join('') || `
+                            <tr><td colspan="6" class="empty-row">El carrito está vacío</td></tr>
+                        `;
+
+                const iva = Math.round(subtotal * 13) / 100;
+
+                $('sub').textContent = PS.money(subtotal);
+                $('iva').textContent = PS.money(iva);
+                $('tot').textContent = PS.money(subtotal + iva);
+
+                $('cartMsg').innerHTML = bad
+                    ? PS.banner(
+                        'red', 'x', 'Carrito bloqueado',
+                        'Hay lotes vencidos o cantidades que superan las existencias. Quite esas líneas para poder facturar.'
+                    )
+                    : '';
+
+                $('pay').disabled = bad || cart.length === 0 || paymentInProgress;
+
+                document.querySelectorAll('[data-d]').forEach(button => {
+                    button.onclick = () => {
+                        cart.splice(Number(button.dataset.d), 1);
+                        renderCart();
+                        check();
+                    };
+                });
+            };
+
+            // =====================================================
+            // AGREGAR AL CARRITO
+            // =====================================================
+
+            const addCurrentPlan = () => {
+                if (!plan || !plan.length || $('add').disabled) return false;
+
+                for (const p of plan) {
+                    const existing = cart.find(c =>
+                        Number(c.lot) === Number(p.l.id)
+                    );
+
+                    if (existing) {
+                        existing.q += p.q;
+                    } else {
+                        cart.push({ lot: p.l.id, q: p.q });
+                    }
+                }
+
+                $('qty').value = 1;
+                renderCart();
+                check();
+
+                return true;
+            };
+
+            $('add').onclick = () => {
+                if (addCurrentPlan()) {
+                    PS.toast('success', 'Producto agregado al carrito');
+                }
+            };
+
+            // =====================================================
+            // EVENTOS DE BÚSQUEDA MANUAL
+            // =====================================================
+
+            $('q').oninput = fillMeds;
+
+            $('med').onchange = () => {
+                $('lot').value = '';
+                fillLots();
+                check();
+            };
+
+            $('lot').onchange = check;
+            $('qty').oninput = check;
+
+            // =====================================================
+            // LECTOR DE CÓDIGO: CÁMARA O ESCÁNER USB
+            // =====================================================
+
+            const addByCode = raw => {
+                const code = normalizeBarcode(raw);
+                if (!code) return false;
+
+                const med = findMedicationByBarcode(code);
+
+                if (!med) {
+                    PS.toast('warning', `No se encontró el medicamento: ${code}`);
+                    return false;
+                }
+
+                // Seleccionar directamente el medicamento encontrado.
+                $('q').value = '';
+                $('med').innerHTML =
+                    `<option value="${med.id}">${esc(med.n)} (${esc(med.code)})</option>`;
+                $('med').value = String(med.id);
+
+                // Selección automática de lote: PEPS.
+                $('lot').value = '';
+                $('qty').value = 1;
+
+                fillLots();
+                check();
+
+                if ($('add').disabled || !plan || !plan.length) {
+                    PS.toast(
+                        'warning',
+                        'Medicamento encontrado, pero no puede agregarse. Revise vencimientos y existencias.'
+                    );
+                    return false;
+                }
+
+                const name = med.n;
+                const added = addCurrentPlan();
+
+                if (added) {
+                    PS.toast('success', `${name} agregado al carrito`);
+                    $('q').value = '';
+                    $('q').focus();
+                }
+
+                return added;
+            };
+
+            // Escáner físico USB/Bluetooth: normalmente escribe el código y Enter.
+            $('q').onkeydown = e => {
+                if (e.key !== 'Enter') return;
+
+                e.preventDefault();
+
+                if (!addByCode($('q').value)) {
+                    $('q').select();
+                }
+            };
+
+            // =====================================================
+            // CÁMARA
+            // =====================================================
+
+            const FORMATS = [
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.UPC_A
+            ];
+
+            const stopCam = async () => {
+                if (scanner) {
+                    try {
+                        if (scanner.isScanning) await scanner.stop();
+                    } catch (err) {
+                        console.warn('Error al detener cámara:', err);
+                    }
+
+                    try {
+                        scanner.clear();
+                    } catch (err) {
+                        console.warn('Error al limpiar lector:', err);
+                    }
+
+                    scanner = null;
+                }
+
+                busy = false;
+                lastDecoded = '';
+
+                $('camBox').classList.add('hide');
+                $('cam').classList.remove('hide');
+                $('camStatus').textContent =
+                    'Apunte al código de barras del PDF y manténgalo enfocado.';
+            };
+
+            const camError = err => {
+                console.error('Error de cámara:', err);
+
+                const raw =
+                    (err && (err.name || '')) + ' ' +
+                    ((err && err.message) || err || '');
+
+                let message = 'Detalle técnico: ' + raw.trim();
+
+                if (!window.isSecureContext) {
+                    message = 'El navegador bloquea la cámara porque la página no usa HTTPS. Abra la aplicación mediante HTTPS o http://localhost en la PC.';
+                } else if (/NotAllowed|Permission|denied/i.test(raw)) {
+                    message = 'Permita el acceso a la cámara desde el candado de la barra de direcciones y vuelva a intentarlo.';
+                } else if (/NotFound|DevicesNotFound|no camera/i.test(raw)) {
+                    message = 'No se encontró ninguna cámara en este equipo.';
+                } else if (/NotReadable|TrackStart|Could not start|in use/i.test(raw)) {
+                    message = 'La cámara está siendo utilizada por otra aplicación o pestaña. Cierre Zoom, Teams u otras aplicaciones que puedan utilizarla.';
+                }
+
+                PS.alertBox('No se pudo abrir la cámara', message, 'warning');
+            };
+
+            const onRead = decodedText => {
+                const code = normalizeBarcode(decodedText);
+
+                if (!code || busy || code === lastDecoded) return;
+
+                busy = true;
+                lastDecoded = code;
+
+                $('camStatus').textContent = 'Código detectado: ' + code;
+
+                const added = addByCode(code);
+
+                if (added) {
+                    $('camStatus').textContent =
+                        'Código ' + code + ' leído y agregado correctamente.';
+                } else {
+                    $('camStatus').textContent =
+                        'Código leído: ' + code +
+                        '. No se agregó. Compruebe el registro y las existencias.';
+                }
+
+                // Evita agregar varias veces el mismo código mientras permanece frente a la cámara.
+                window.setTimeout(() => {
+                    busy = false;
+                    lastDecoded = '';
+
+                    if (!$('camBox').classList.contains('hide')) {
+                        $('camStatus').textContent =
+                            'Cámara activa. Puede escanear el siguiente producto.';
+                    }
+                }, 1600);
+            };
+
+            $('cam').onclick = async () => {
+                if (!window.Html5Qrcode) {
+                    PS.alertBox(
+                        'Lector no disponible',
+                        'No se pudo cargar html5-qrcode. Compruebe su conexión a internet.',
+                        'warning'
+                    );
+                    return;
+                }
+
+                $('camBox').classList.remove('hide');
+                $('cam').classList.add('hide');
+                $('camStatus').textContent = 'Iniciando cámara…';
+
+                const attempts = [
+                    { camera: { facingMode: 'environment' }, hd: true },
+                    { camera: { facingMode: 'environment' }, hd: false },
+                    { camera: { facingMode: 'user' }, hd: false }
+                ];
+
+                let lastError = null;
+
+                for (const attempt of attempts) {
+                    try {
+                        scanner = new Html5Qrcode('reader', {
+                            formatsToSupport: FORMATS,
+                            verbose: false
+                        });
+
+                        const config = {
+                            fps: 15,
+                            qrbox: (width, height) => ({
+                                width: Math.min(width, Math.max(100, Math.floor(width * 0.96))),
+                                height: Math.min(height, Math.max(70, Math.floor(height * 0.70)))
+                            }),
+                            disableFlip: false
+                        };
+
+                        if (attempt.hd) {
+                            config.aspectRatio = 1.777778;
+                            config.videoConstraints = {
+                                facingMode: 'environment',
+                                width: { ideal: 1920 },
+                                height: { ideal: 1080 }
+                            };
+                        }
+
+                        await scanner.start(
+                            attempt.camera,
+                            config,
+                            onRead,
+                            () => { }
+                        );
+
+                        $('camStatus').textContent =
+                            'Cámara activa. Centre el código de barras dentro del recuadro.';
+                        return;
+
+                    } catch (err) {
+                        lastError = err;
+                        console.warn('Intento de cámara fallido:', err);
+
+                        try {
+                            if (scanner) {
+                                if (scanner.isScanning) await scanner.stop();
+                                scanner.clear();
+                            }
+                        } catch { }
+
+                        scanner = null;
+                    }
+                }
+
+                await stopCam();
+                camError(lastError);
+            };
+
+            $('camStop').onclick = stopCam;
+
+            // Detener la cámara si el usuario abandona la página.
+            window.addEventListener('beforeunload', () => {
+                if (scanner && scanner.isScanning) {
+                    scanner.stop().catch(() => { });
+                }
+            });
+
+            // =====================================================
+            // FACTURACIÓN
+            // =====================================================
+
+            $('pay').onclick = async () => {
+                if (paymentInProgress || !cart.length) return;
+
+                paymentInProgress = true;
+                $('pay').disabled = true;
+
+                try {
+                    // Validación final de existencias antes de enviar al servidor.
+                    for (const item of cart) {
+                        const lot = S.lots.find(l =>
+                            Number(l.id) === Number(item.lot)
+                        );
+
+                        if (!lot || lot.st.k === 'exp' || Number(lot.cur) < item.q) {
+                            PS.alertBox(
+                                'Venta bloqueada',
+                                'Un lote está vencido o ya no tiene existencias suficientes. Actualice el inventario antes de facturar.',
+                                'warning'
+                            );
+                            await PS.reload();
+                            renderCart();
+                            return;
+                        }
+                    }
+
+                    const email = $('emailCliente').value.trim();
+                    const sendEmail = $('enviarCorreo').checked;
+
+                    if (sendEmail && (!email || !$('emailCliente').checkValidity())) {
+                        PS.alertBox(
+                            'Correo inválido',
+                            'Ingrese una dirección de correo válida para enviar la factura.',
+                            'warning'
+                        );
+                        return;
+                    }
+
+                    const client = $('cli').value.trim() || 'Consumidor final';
+
+                    const snapshot = cart.map(item => {
+                        const lot = S.lots.find(l =>
+                            Number(l.id) === Number(item.lot)
+                        );
+
+                        return {
+                            n: lot.m.n,
+                            lote: lot.num,
+                            q: item.q,
+                            p: Number(lot.m.price)
+                        };
+                    });
+
+                    const response = await PS.api('/api/sales', {
+                        cli: client,
+                        email: email,
+                        sendEmail: sendEmail,
+                        items: cart.map(item => ({
+                            lot: item.lot,
+                            q: item.q
+                        }))
+                    });
+
+                    if (!response.ok || !response.data?.ok) {
+                        PS.alertBox(
+                            'Venta rechazada',
+                            response.data?.error || 'No se pudo procesar la factura.',
+                            'error'
+                        );
+                        return;
+                    }
+
+                    const data = response.data;
+
+                    let successHtml = `Total cobrado: <b>${PS.money(data.total)}</b>`;
+
+                    if (sendEmail && email) {
+                        successHtml +=
+                            `<br><small class="text-muted">Correo de destino: <b>${esc(email)}</b></small>`;
+                    }
+
+                    if (data.mailError) {
+                        successHtml +=
+                            `<br><small class="text-danger">La venta se realizó, pero no se pudo enviar el correo: ${esc(data.mailError)}</small>`;
+                    }
+
+                    const result = await Swal.fire({
+                        icon: 'success',
+                        title: `Factura ${esc(data.num ?? '')}`,
+                        html: successHtml,
+                        showDenyButton: true,
+                        confirmButtonText: 'Listo',
+                        denyButtonText: 'Imprimir comprobante PDF',
+                        confirmButtonColor: '#00a86b'
+                    });
+
+                    if (result.isDenied) {
+                        const subtotal = Number(data.sub ?? snapshot.reduce(
+                            (sum, item) => sum + item.p * item.q, 0
+                        ));
+                        const iva = Number(data.iva ?? Math.round(subtotal * 13) / 100);
+                        const total = Number(data.total ?? subtotal + iva);
+
+                        PS.printHtml(
+                            'Comprobante ' + (data.num ?? ''),
+                            `<h2>PharmaStock · Comprobante ${esc(data.num ?? '')}</h2>
+                                    <p>
+                                        Cliente: ${esc(client)} ·
+                                        ${new Date().toLocaleString('es-SV')} ·
+                                        Atendió: ${esc(PS.user?.name ?? '')}
+                                    </p>
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Producto</th>
+                                                <th>Lote</th>
+                                                <th class="n">Cant.</th>
+                                                <th class="n">P.U.</th>
+                                                <th class="n">Subtotal</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${snapshot.map(item => `
+                                                <tr>
+                                                    <td>${esc(item.n)}</td>
+                                                    <td>${esc(item.lote)}</td>
+                                                    <td class="n">${item.q}</td>
+                                                    <td class="n">${PS.money(item.p)}</td>
+                                                    <td class="n">${PS.money(item.p * item.q)}</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                    <p class="n">
+                                        Subtotal ${PS.money(subtotal)} · IVA ${PS.money(iva)}
+                                    </p>
+                                    <div class="t">TOTAL ${PS.money(total)}</div>`
+                        );
+                    }
+
+                    cart = [];
+                    $('cli').value = '';
+                    $('emailCliente').value = '';
+                    $('enviarCorreo').checked = false;
+                    $('q').value = '';
+
+                    await PS.reload();
+
+                    fillMeds();
+                    renderCart();
+
+                } catch (err) {
+                    console.error('Error al facturar:', err);
+                    PS.alertBox(
+                        'Error al facturar',
+                        'Ocurrió un error inesperado. Compruebe si la venta se registró antes de volver a intentarlo.',
+                        'error'
+                    );
+                } finally {
+                    paymentInProgress = false;
+                    renderCart();
+                }
+            };
+
+            // =====================================================
+            // INICIALIZACIÓN
+            // =====================================================
 
             fillMeds();
             renderCart();
