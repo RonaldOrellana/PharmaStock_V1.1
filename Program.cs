@@ -359,16 +359,18 @@ app.MapGet("/api/state", async (Db d, HttpContext h) =>
 app.MapPost("/api/meds", async (MedReq r, Db d) =>
 {
     var code = (r.code ?? "").Trim();
-    if (code.Length == 0 || string.IsNullOrWhiteSpace(r.n)) return Err("Código de barras y nombre son obligatorios.");
+    if (string.IsNullOrWhiteSpace(r.n)) return Err("El nombre del medicamento es obligatorio.");
+    if (code.Length > 30) return Err("El código de barras no puede superar 30 caracteres.");
     if (r.price <= 0) return Err("El precio debe ser mayor que cero (RN-04).");
     if (r.min < 0) return Err("El stock mínimo no puede ser negativo (RN-04).");
-    if (await d.Medicamentos.AnyAsync(m => m.CodigoBarras == code)) return Err("Error: el código de barras ya existe.");
+    if (code.Length == 0) code = await NextBarcode(d);   // sin código: se genera uno EAN-13 de uso interno
+    else if (await d.Medicamentos.AnyAsync(m => m.CodigoBarras == code)) return Err("Error: el código de barras ya existe.");
     var c = await d.Categorias.FirstOrDefaultAsync(x => x.NombreCategoria == r.cat);
     if (c == null) return Err("Categoría inválida.");
 
     d.Medicamentos.Add(new Medicamento { CodigoBarras = code, NombreComercial = r.n.Trim(), IdCategoria = c.IdCategoria, PrecioVenta = r.price, StockMinimo = r.min });
     await d.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
+    return Results.Ok(new { ok = true, code });
 }).RequireAuthorization(Roles(A));
 
 app.MapPost("/api/meds/{id}/toggle", async (int id, Db d) =>
@@ -650,6 +652,26 @@ app.MapPost("/api/users/{id}/toggle", async (int id, Db d) =>
 app.Run();
 
 // ---------- FUNCIONES AUXILIARES ----------
+// Código de barras interno EAN-13: prefijo 2 (uso en tienda) + correlativo de 11 dígitos + dígito verificador
+static async Task<string> NextBarcode(Db d)
+{
+    var existentes = await d.Medicamentos.Where(m => m.CodigoBarras.StartsWith("2") && m.CodigoBarras.Length == 13)
+        .Select(m => m.CodigoBarras).ToListAsync();
+    long max = 0;
+    foreach (var c in existentes)
+        if (c.All(char.IsDigit) && long.TryParse(c.Substring(1, 11), out var n) && n > max) max = n;
+    string cod;
+    do
+    {
+        max++;
+        var cuerpo = "2" + max.ToString("D11");
+        var suma = 0;
+        for (var i = 0; i < 12; i++) suma += (cuerpo[i] - '0') * (i % 2 == 0 ? 1 : 3);
+        cod = cuerpo + (char)('0' + (10 - suma % 10) % 10);
+    } while (await d.Medicamentos.AnyAsync(m => m.CodigoBarras == cod));
+    return cod;
+}
+
 static string NormRole(string n) => (n ?? "").Trim().ToLowerInvariant() switch
 {
     "administrador" or "admin" => "Administrador",

@@ -15,7 +15,12 @@
         <h3 data-i="plus"> Agregar producto</h3>
         <div class="field">
             <label for="q">Buscar por nombre o código de barras</label>
-            <input id="q" placeholder="Escanee o escriba…" autocomplete="off" />
+            <input id="q" placeholder="Escanee el código o escriba… (Enter agrega)" autocomplete="off" autofocus />
+        </div>
+        <button type="button" class="btn btn-out btn-block" id="cam">📷 Escanear con la cámara</button>
+        <div id="camBox" class="hide" style="margin:.6rem 0">
+            <div id="reader" style="width:100%"></div>
+            <button type="button" class="btn btn-red btn-block mt" id="camStop">Cerrar cámara</button>
         </div>
         <div class="field">
             <label for="med">Medicamento</label>
@@ -84,161 +89,201 @@
 </div>
 
 @section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script>
         PS.boot(S => {
-          const $ = id => document.getElementById(id), esc = PS.esc, vend = PS.role() === 'Vendedor';
-          let cart = [], plan = null;
+            const $ = id => document.getElementById(id), esc = PS.esc, vend = PS.role() === 'Vendedor';
+            let cart = [], plan = null;
 
-          if (vend) $('lotWrap').classList.add('hide');
+            if (vend) $('lotWrap').classList.add('hide');
 
-          const reserved = id => cart.filter(c => c.lot === id).reduce((s, c) => s + c.q, 0);
-          const avail = l => l.cur - reserved(l.id);
+            const reserved = id => cart.filter(c => c.lot === id).reduce((s, c) => s + c.q, 0);
+            const avail = l => l.cur - reserved(l.id);
 
-          const fillMeds = () => {
-            const t = $('q').value.trim().toLowerCase();
-            const list = S.meds.filter(m => m.on && (!t || m.n.toLowerCase().includes(t) || m.code.toLowerCase().includes(t)));
-            $('med').innerHTML = '<option value="">— Seleccione —</option>' + list.map(m => `<option value="${m.id}">${esc(m.n)} (${m.code})</option>`).join('');
-            const exact = list.find(m => m.code.toLowerCase() === t);
-            if (exact || (list.length === 1 && t)) $('med').value = (exact || list[0]).id;
-            fillLots(); check();
-          };
+            const fillMeds = () => {
+                const t = $('q').value.trim().toLowerCase();
+                const list = S.meds.filter(m => m.on && (!t || m.n.toLowerCase().includes(t) || m.code.toLowerCase().includes(t)));
+                $('med').innerHTML = '<option value="">— Seleccione —</option>' + list.map(m => `<option value="${m.id}">${esc(m.n)} (${m.code})</option>`).join('');
+                const exact = list.find(m => m.code.toLowerCase() === t);
+                if (exact || (list.length === 1 && t)) $('med').value = (exact || list[0]).id;
+                fillLots(); check();
+            };
 
-          const fillLots = () => {
-            const m = S.med(+$('med').value);
-            $('lot').innerHTML = '<option value="">Automático · PEPS (recomendado)</option>' + (m ? m.lots.filter(l => l.cur > 0).map(l => `<option value="${l.id}">${esc(l.num)} · vence ${l.exp} · ${l.cur} u.${l.st.k === 'exp' ? ' · VENCIDO' : ''}</option>`).join('') : '');
-          };
+            const fillLots = () => {
+                const m = S.med(+$('med').value);
+                $('lot').innerHTML = '<option value="">Automático · PEPS (recomendado)</option>' + (m ? m.lots.filter(l => l.cur > 0).map(l => `<option value="${l.id}">${esc(l.num)} · vence ${l.exp} · ${l.cur} u.${l.st.k === 'exp' ? ' · VENCIDO' : ''}</option>`).join('') : '');
+            };
 
-          const check = () => {
-            const m = S.med(+$('med').value), q = parseInt($('qty').value, 10), forced = +$('lot').value;
-            plan = null; $('info').innerHTML = '';
-            if (!m) { $('msg').innerHTML = ''; $('add').disabled = true; return; }
-            let html = '', block = false;
-            if (!Number.isInteger(q) || q <= 0) { html = PS.banner('amber', 'alert', 'Cantidad inválida', 'Ingrese un número entero mayor a 0.'); block = true; }
-            const valid = m.valid.filter(l => avail(l) > 0), expStock = m.lots.filter(l => l.st.k === 'exp' && l.cur > 0);
+            const check = () => {
+                const m = S.med(+$('med').value), q = parseInt($('qty').value, 10), forced = +$('lot').value;
+                plan = null; $('info').innerHTML = '';
+                if (!m) { $('msg').innerHTML = ''; $('add').disabled = true; return; }
+                let html = '', block = false;
+                if (!Number.isInteger(q) || q <= 0) { html = PS.banner('amber', 'alert', 'Cantidad inválida', 'Ingrese un número entero mayor a 0.'); block = true; }
+                const valid = m.valid.filter(l => avail(l) > 0), expStock = m.lots.filter(l => l.st.k === 'exp' && l.cur > 0);
 
-            if (!block && forced) {
-              const l = S.lots.find(x => x.id === forced);
-              if (l.st.k === 'exp') { html = PS.banner('red', 'x', 'Lote vencido: venta bloqueada (RN-01)', `El lote <b>${esc(l.num)}</b> venció el ${PS.fmtDate(l.exp)}. No puede venderse; retírelo del anaquel.`); block = true; }
-              else if (valid[0] && valid[0].id !== l.id) { html = PS.banner('amber', 'alert', 'Debe aplicarse PEPS', `Primero debe salir el lote <b>${esc(valid[0].num)}</b> (vence ${PS.fmtDate(valid[0].exp)}).`); block = true; }
-              else if (avail(l) < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y el lote ${esc(l.num)} solo tiene ${Math.max(avail(l), 0)} disponibles.`); block = true; }
-              else plan = [{ l, q }];
-            } else if (!block) {
-              const total = valid.reduce((s, l) => s + avail(l), 0);
-              if (total < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y solo hay ${total} en lotes vigentes.`); block = true; }
-              else {
-                let r = q; plan = [];
-                for (const l of valid) { const t = Math.min(r, avail(l)); if (t > 0) plan.push({ l, q: t }); r -= t; if (r <= 0) break; }
-                html = PS.banner('green', 'check', 'PEPS sugerido', plan.map(p => `<b>${p.q}</b> u. del lote <b>${esc(p.l.num)}</b> (vence ${PS.fmtDate(p.l.exp)})`).join(' + '));
-              }
-            }
+                if (!block && forced) {
+                    const l = S.lots.find(x => x.id === forced);
+                    if (l.st.k === 'exp') { html = PS.banner('red', 'x', 'Lote vencido: venta bloqueada (RN-01)', `El lote <b>${esc(l.num)}</b> venció el ${PS.fmtDate(l.exp)}. No puede venderse; retírelo del anaquel.`); block = true; }
+                    else if (valid[0] && valid[0].id !== l.id) { html = PS.banner('amber', 'alert', 'Debe aplicarse PEPS', `Primero debe salir el lote <b>${esc(valid[0].num)}</b> (vence ${PS.fmtDate(valid[0].exp)}).`); block = true; }
+                    else if (avail(l) < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y el lote ${esc(l.num)} solo tiene ${Math.max(avail(l), 0)} disponibles.`); block = true; }
+                    else plan = [{ l, q }];
+                } else if (!block) {
+                    const total = valid.reduce((s, l) => s + avail(l), 0);
+                    if (total < q) { html = PS.banner('red', 'alert', 'Existencias insuficientes (RN-02)', `Pidió ${q} u. y solo hay ${total} en lotes vigentes.`); block = true; }
+                    else {
+                        let r = q; plan = [];
+                        for (const l of valid) { const t = Math.min(r, avail(l)); if (t > 0) plan.push({ l, q: t }); r -= t; if (r <= 0) break; }
+                        html = PS.banner('green', 'check', 'PEPS sugerido', plan.map(p => `<b>${p.q}</b> u. del lote <b>${esc(p.l.num)}</b> (vence ${PS.fmtDate(p.l.exp)})`).join(' + '));
+                    }
+                }
 
-            if (expStock.length) html += PS.banner('red', 'x', 'Lotes vencidos bloqueados (RN-01)', expStock.map(l => `${esc(l.num)} (${l.cur} u.)`).join(', ') + ' no se incluyen en la venta.');
-            $('msg').innerHTML = html; $('add').disabled = block || !plan;
+                if (expStock.length) html += PS.banner('red', 'x', 'Lotes vencidos bloqueados (RN-01)', expStock.map(l => `${esc(l.num)} (${l.cur} u.)`).join(', ') + ' no se incluyen en la venta.');
+                $('msg').innerHTML = html; $('add').disabled = block || !plan;
 
-            if (!vend) {
-              const subs = S.meds.filter(x => x.on && x.cat === m.cat && x.id !== m.id && x.validStock > 0);
-              $('info').innerHTML = `<h3 style="font-size:.9rem">Lotes de ${esc(m.n)}</h3><div class="tw"><table><thead><tr><th>Lote</th><th>Vence</th><th class="num">Disp.</th><th>Estado</th></tr></thead><tbody>${m.lots.map(l => `<tr class="${l.st.k === 'exp' ? 'r-crit' : l.st.k === 'soon' ? 'r-warn' : ''}"><td>${esc(l.num)}${m.valid[0] && m.valid[0].id === l.id ? ' <span class="badge b-info">PEPS</span>' : ''}</td><td>${l.exp}</td><td class="num">${l.cur}</td><td>${PS.lotBadge(l)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-row">Sin lotes</td></tr>'}</tbody></table></div>
-                <p class="muted" style="margin:.7rem 0 .3rem">Sustitutos (${esc(m.cat)}):</p><div class="chips">${subs.map(s => `<span class="chip" data-s="${s.id}">${esc(s.n)} · ${s.validStock} u.</span>`).join('') || '<span class="muted">Sin sustitutos con existencias</span>'}</div>`;
-              document.querySelectorAll('[data-s]').forEach(c => c.onclick = () => { $('med').value = c.dataset.s; fillLots(); check(); });
-            }
-          };
+                if (!vend) {
+                    const subs = S.meds.filter(x => x.on && x.cat === m.cat && x.id !== m.id && x.validStock > 0);
+                    $('info').innerHTML = `<h3 style="font-size:.9rem">Lotes de ${esc(m.n)}</h3><div class="tw"><table><thead><tr><th>Lote</th><th>Vence</th><th class="num">Disp.</th><th>Estado</th></tr></thead><tbody>${m.lots.map(l => `<tr class="${l.st.k === 'exp' ? 'r-crit' : l.st.k === 'soon' ? 'r-warn' : ''}"><td>${esc(l.num)}${m.valid[0] && m.valid[0].id === l.id ? ' <span class="badge b-info">PEPS</span>' : ''}</td><td>${l.exp}</td><td class="num">${l.cur}</td><td>${PS.lotBadge(l)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-row">Sin lotes</td></tr>'}</tbody></table></div>
+                        <p class="muted" style="margin:.7rem 0 .3rem">Sustitutos (${esc(m.cat)}):</p><div class="chips">${subs.map(s => `<span class="chip" data-s="${s.id}">${esc(s.n)} · ${s.validStock} u.</span>`).join('') || '<span class="muted">Sin sustitutos con existencias</span>'}</div>`;
+                    document.querySelectorAll('[data-s]').forEach(c => c.onclick = () => { $('med').value = c.dataset.s; fillLots(); check(); });
+                }
+            };
 
-          const renderCart = () => {
-            let sub = 0, bad = false;
-            $('cart').innerHTML = cart.map((c, i) => {
-              const l = S.lots.find(x => x.id === c.lot), p = l.m.price, st = p * c.q;
-              sub += st;
-              const issue = l.st.k === 'exp' || l.cur < c.q; bad = bad || issue;
-              return `<tr class="${issue ? 'r-crit' : ''}"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}<br>${PS.lotBadge(l)}</td><td class="num">${c.q}</td><td class="num">${PS.money(p)}</td><td class="num">${PS.money(st)}</td><td><button class="btn btn-red ib" data-d="${i}" title="Quitar">${PS.ico('trash')}</button></td></tr>`;
-            }).join('') || '<tr><td colspan="6" class="empty-row">El carrito está vacío</td></tr>';
+            const renderCart = () => {
+                let sub = 0, bad = false;
+                $('cart').innerHTML = cart.map((c, i) => {
+                    const l = S.lots.find(x => x.id === c.lot), p = l.m.price, st = p * c.q;
+                    sub += st;
+                    const issue = l.st.k === 'exp' || l.cur < c.q; bad = bad || issue;
+                    return `<tr class="${issue ? 'r-crit' : ''}"><td><b>${esc(l.m.n)}</b></td><td>${esc(l.num)}<br>${PS.lotBadge(l)}</td><td class="num">${c.q}</td><td class="num">${PS.money(p)}</td><td class="num">${PS.money(st)}</td><td><button class="btn btn-red ib" data-d="${i}" title="Quitar">${PS.ico('trash')}</button></td></tr>`;
+                }).join('') || '<tr><td colspan="6" class="empty-row">El carrito está vacío</td></tr>';
 
-            const iva = Math.round(sub * 13) / 100;
-            $('sub').textContent = PS.money(sub);
-            $('iva').textContent = PS.money(iva);
-            $('tot').textContent = PS.money(sub + iva);
-            $('cartMsg').innerHTML = bad ? PS.banner('red', 'x', 'Carrito bloqueado', 'Hay lotes vencidos o sin existencias. Quite esas líneas para poder facturar.') : '';
-            $('pay').disabled = bad || !cart.length;
-            document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { cart.splice(+b.dataset.d, 1); renderCart(); check(); });
-          };
+                const iva = Math.round(sub * 13) / 100;
+                $('sub').textContent = PS.money(sub);
+                $('iva').textContent = PS.money(iva);
+                $('tot').textContent = PS.money(sub + iva);
+                $('cartMsg').innerHTML = bad ? PS.banner('red', 'x', 'Carrito bloqueado', 'Hay lotes vencidos o sin existencias. Quite esas líneas para poder facturar.') : '';
+                $('pay').disabled = bad || !cart.length;
+                document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { cart.splice(+b.dataset.d, 1); renderCart(); check(); });
+            };
 
-          $('q').oninput = fillMeds;
-          $('med').onchange = () => { fillLots(); check(); };
-          $('lot').onchange = check;
-          $('qty').oninput = check;
+            $('q').oninput = fillMeds;
+            $('med').onchange = () => { fillLots(); check(); };
+            $('lot').onchange = check;
+            $('qty').oninput = check;
 
-          $('add').onclick = () => {
-            plan.forEach(p => {
-              const e = cart.find(c => c.lot === p.l.id);
-              e ? e.q += p.q : cart.push({ lot: p.l.id, q: p.q });
-            });
-            PS.toast('success', 'Producto agregado');
-            $('qty').value = 1;
-            renderCart();
-            check();
-          };
+            // Agrega 1 unidad por código leído (respeta PEPS, vencidos y existencias)
+            const addByCode = raw => {
+                const t = raw.trim().toLowerCase();
+                if (!t) return false;
+                const m = S.meds.find(x => (x.code || '').toLowerCase() === t);
+                if (!m) { PS.toast('warning', 'Código no encontrado: ' + raw); return false; }
+                if (!m.on) { PS.toast('warning', 'El medicamento está inactivo'); return false; }
+                $('med').value = m.id; fillLots(); $('lot').value = ''; $('qty').value = 1; check();
+                if ($('add').disabled) return false;            // el aviso de arriba explica el motivo (vencido, sin stock, PEPS…)
+                $('add').click(); $('q').value = ''; fillMeds();
+                return true;
+            };
 
-          $('pay').onclick = async () => {
-            $('pay').disabled = true;
-            const snapshot = cart.map(c => { const l = S.lots.find(x => x.id === c.lot); return { n: l.m.n, lote: l.num, q: c.q, p: l.m.price }; });
-            const cli = $('cli').value.trim() || 'Consumidor final';
-            const email = $('emailCliente').value.trim();
-            const enviarCorreo = $('enviarCorreo').checked;
+            // Lector físico USB/Bluetooth: escribe el código + Enter
+            $('q').onkeydown = e => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                if (addByCode($('q').value)) $('q').focus(); else $('q').select();
+            };
 
-            // Validación básica de correo si la casilla está marcada
-            if (enviarCorreo && !email) {
-              PS.alertBox('Atención', 'Por favor ingrese un correo electrónico válido si desea enviar la factura por correo.');
-              $('pay').disabled = false;
-              return;
-            }
+            // Cámara (PC o celular)
+            let scanner = null, busy = false;
+            const stopCam = async () => {
+                if (scanner) { try { await scanner.stop(); scanner.clear(); } catch { } scanner = null; }
+                $('camBox').classList.add('hide'); $('cam').classList.remove('hide');
+            };
+            $('cam').onclick = async () => {
+                if (!window.Html5Qrcode) return PS.alertBox('Cámara no disponible', 'No se pudo cargar el lector de cámara (revise la conexión a internet).', 'warning');
+                $('camBox').classList.remove('hide'); $('cam').classList.add('hide');
+                scanner = new Html5Qrcode('reader');
+                try {
+                    await scanner.start({ facingMode: 'environment' },
+                        { fps: 10, qrbox: { width: 260, height: 110 }, formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A] },
+                        txt => { if (busy) return; busy = true; addByCode(txt); setTimeout(() => busy = false, 1500); });
+                } catch (err) {
+                    await stopCam();
+                    PS.alertBox('No se pudo abrir la cámara', 'Permita el acceso a la cámara. En el celular la página debe abrirse con HTTPS; en la PC funciona desde localhost.', 'warning');
+                }
+            };
+            $('camStop').onclick = stopCam;
 
-            // Envío del payload actualizado a la API
-            const r = await PS.api('/api/sales', {
-              cli: cli,
-              email: email,
-              sendEmail: enviarCorreo,
-              items: cart.map(c => ({ lot: c.lot, q: c.q }))
-            });
+            $('add').onclick = () => {
+                plan.forEach(p => {
+                    const e = cart.find(c => c.lot === p.l.id);
+                    e ? e.q += p.q : cart.push({ lot: p.l.id, q: p.q });
+                });
+                PS.toast('success', 'Producto agregado');
+                $('qty').value = 1;
+                renderCart();
+                check();
+            };
 
-            if (!r.ok) {
-              PS.alertBox('Venta rechazada', r.data.error || 'No se pudo facturar.');
-              $('pay').disabled = false;
-              return;
-            }
+            $('pay').onclick = async () => {
+                $('pay').disabled = true;
+                const snapshot = cart.map(c => { const l = S.lots.find(x => x.id === c.lot); return { n: l.m.n, lote: l.num, q: c.q, p: l.m.price }; });
+                const cli = $('cli').value.trim() || 'Consumidor final';
+                const email = $('emailCliente').value.trim();
+                const enviarCorreo = $('enviarCorreo').checked;
 
-            const d = r.data;
-            let mensajeExito = `Total cobrado: ${PS.money(d.total)}`;
-            if (enviarCorreo && email) {
-              mensajeExito += `<br><small class="text-muted">Se envió una copia digital a <b>${esc(email)}</b></small>`;
-            }
+                // Validación básica de correo si la casilla está marcada
+                if (enviarCorreo && !email) {
+                    PS.alertBox('Atención', 'Por favor ingrese un correo electrónico válido si desea enviar la factura por correo.');
+                    $('pay').disabled = false;
+                    return;
+                }
 
-            const res = await Swal.fire({
-              icon: 'success',
-              title: `Factura ${d.num}`,
-              html: mensajeExito,
-              showDenyButton: true,
-              confirmButtonText: 'Listo',
-              denyButtonText: 'Imprimir comprobante PDF',
-              confirmButtonColor: '#00a86b'
-            });
+                // Envío del payload actualizado a la API
+                const r = await PS.api('/api/sales', {
+                    cli: cli,
+                    email: email,
+                    sendEmail: enviarCorreo,
+                    items: cart.map(c => ({ lot: c.lot, q: c.q }))
+                });
 
-            if (res.isDenied) {
-              PS.printHtml('Comprobante ' + d.num, `<h2>PharmaStock · Comprobante ${d.num}</h2><p>Cliente: ${esc(cli)} · ${new Date().toLocaleString('es-SV')} · Atendió: ${esc(PS.user.name)}</p><table><tr><th>Producto</th><th>Lote</th><th class="n">Cant.</th><th class="n">P.U.</th><th class="n">Subtotal</th></tr>${snapshot.map(i => `<tr><td>${esc(i.n)}</td><td>${esc(i.lote)}</td><td class="n">${i.q}</td><td class="n">${PS.money(i.p)}</td><td class="n">${PS.money(i.p * i.q)}</td></tr>`).join('')}</table><p class="n">Subtotal ${PS.money(d.sub)} · IVA ${PS.money(d.iva)}</p><div class="t">TOTAL ${PS.money(d.total)}</div>`);
-            }
+                if (!r.ok) {
+                    PS.alertBox('Venta rechazada', r.data.error || 'No se pudo facturar.');
+                    $('pay').disabled = false;
+                    return;
+                }
 
-            // Limpieza de campos al finalizar
-            cart = [];
-            $('cli').value = '';
-            $('emailCliente').value = '';
-            $('enviarCorreo').checked = false;
-            await PS.reload();
+                const d = r.data;
+                let mensajeExito = `Total cobrado: ${PS.money(d.total)}`;
+                if (enviarCorreo && email) {
+                    mensajeExito += `<br><small class="text-muted">Se envió una copia digital a <b>${esc(email)}</b></small>`;
+                }
+
+                const res = await Swal.fire({
+                    icon: 'success',
+                    title: `Factura ${d.num}`,
+                    html: mensajeExito,
+                    showDenyButton: true,
+                    confirmButtonText: 'Listo',
+                    denyButtonText: 'Imprimir comprobante PDF',
+                    confirmButtonColor: '#00a86b'
+                });
+
+                if (res.isDenied) {
+                    PS.printHtml('Comprobante ' + d.num, `<h2>PharmaStock · Comprobante ${d.num}</h2><p>Cliente: ${esc(cli)} · ${new Date().toLocaleString('es-SV')} · Atendió: ${esc(PS.user.name)}</p><table><tr><th>Producto</th><th>Lote</th><th class="n">Cant.</th><th class="n">P.U.</th><th class="n">Subtotal</th></tr>${snapshot.map(i => `<tr><td>${esc(i.n)}</td><td>${esc(i.lote)}</td><td class="n">${i.q}</td><td class="n">${PS.money(i.p)}</td><td class="n">${PS.money(i.p * i.q)}</td></tr>`).join('')}</table><p class="n">Subtotal ${PS.money(d.sub)} · IVA ${PS.money(d.iva)}</p><div class="t">TOTAL ${PS.money(d.total)}</div>`);
+                }
+
+                // Limpieza de campos al finalizar
+                cart = [];
+                $('cli').value = '';
+                $('emailCliente').value = '';
+                $('enviarCorreo').checked = false;
+                await PS.reload();
+                fillMeds();
+                renderCart();
+            };
+
             fillMeds();
             renderCart();
-          };
-
-          fillMeds();
-          renderCart();
         });
     </script>
 }
-}
-
