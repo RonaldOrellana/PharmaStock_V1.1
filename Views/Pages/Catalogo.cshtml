@@ -32,9 +32,23 @@
 @section Scripts {
     <script>
         PS.boot(S => {
-            const $ = id => document.getElementById(id), esc = PS.esc, admin = PS.role() === 'Administrador';
-            $('hint').textContent = admin ? 'Alta, baja y consulta de medicamentos' : 'Consulta de productos, existencias y lotes (solo lectura)';
-            if (!admin) { $('formCard').classList.add('hide'); $('layout').style.gridTemplateColumns = '1fr'; }
+            const $ = id => document.getElementById(id);
+            const esc = PS.esc;
+
+            const admin = PS.role() === 'Administrador';
+
+            const canCreate = PS.can('Administrador', 'Supervisor');
+
+            $('hint').textContent = admin
+                ? 'Alta, baja y consulta de medicamentos'
+                : canCreate
+                    ? 'Alta y consulta de medicamentos; la desactivación está reservada al Administrador'
+                    : 'Consulta de productos, existencias y lotes (solo lectura)';
+
+            if (!canCreate) {
+                $('formCard').classList.add('hide');
+                $('layout').style.gridTemplateColumns = '1fr';
+            }
             $('cat').innerHTML = '<option value="">— Seleccione —</option>' + S.cats.map(c => `<option>${esc(c)}</option>`).join('');
             const BC_ICO = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="1" y="2" width="1.5" height="12"/><rect x="4" y="2" width="1" height="12"/><rect x="6.5" y="2" width="2" height="12"/><rect x="10" y="2" width="1" height="12"/><rect x="12.5" y="2" width="2" height="12"/></svg>';
             const showLabel = m => Swal.fire({

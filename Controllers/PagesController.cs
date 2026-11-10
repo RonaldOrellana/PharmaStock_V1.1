@@ -24,7 +24,7 @@ public class PagesController : Controller
     [Authorize(Roles = $"{A},{S},{F}")] public IActionResult Catalogo() => View();
     [Authorize(Roles = $"{A},{S}")] public IActionResult Lotes() => View();
     [Authorize(Roles = $"{A},{S}")] public IActionResult Movimientos() => View();
-    [Authorize(Roles = $"{A},{S}")] public IActionResult Reportes() => View();
+    [Authorize(Roles = $"{A},{S},,{F}")] public IActionResult Reportes() => View();
     [Authorize(Roles = $"{A}")] public IActionResult Usuarios() => View();
 }
 public class SaleItemDto

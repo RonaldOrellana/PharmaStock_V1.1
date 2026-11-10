@@ -1,13 +1,13 @@
 /* PharmaStock · núcleo de UI: estado, alertas, navegación por rol, utilidades */
 const PS = (() => {
-    const ALL = ['Administrador', 'Supervisor', 'Cajero/Farmaceutico', 'Vendedor'];
+    const ALL = ['Administrador', 'Supervisor', 'Farmaceutico', 'Vendedor'];
     const NAV = [ // [pagina, texto, icono, roles permitidos]
-        ['Dashboard', 'Panel principal', 'dash', ['Administrador', 'Supervisor', 'Cajero/Farmaceutico']],
+        ['Dashboard', 'Panel principal', 'dash', ['Administrador', 'Supervisor', 'Farmaceutico']],
         ['Facturacion', 'Punto de venta', 'cart', ALL],
-        ['Catalogo', 'Catálogo / Búsqueda', 'pill', ['Administrador', 'Supervisor', 'Cajero/Farmaceutico']],
+        ['Catalogo', 'Catálogo / Búsqueda', 'pill', ['Administrador', 'Supervisor']],
         ['Lotes', 'Lotes e ingresos', 'box', ['Administrador', 'Supervisor']],
         ['Movimientos', 'Ajustes y mermas', 'swap', ['Administrador', 'Supervisor']],
-        ['Reportes', 'Reportes', 'chart', ['Administrador', 'Supervisor']],
+        ['Reportes', 'Reportes', 'chart', ['Administrador', 'Supervisor', 'Farmaceutico']],
         ['Usuarios', 'Usuarios', 'shield', ['Administrador']]
     ];
 
@@ -69,7 +69,59 @@ const PS = (() => {
         S.sales.forEach(v => v.date = new Date(v.fecha));
         S.movs.forEach(m => m.date = parseMov(m.d));
     };
-    const load = async () => { const r = await cfg.fetch('/api/state', { credentials: 'same-origin' }); if (r.status === 401) { location.href = '/Login'; return; } const j = await r.json(); S = S ? Object.assign(S, j) : j; derive(); renderBell(); return S; };
+    const load = async () => {
+        const r = await cfg.fetch('/api/state', {
+            credentials: 'same-origin'
+        });
+
+        if (r.status === 401) {
+            location.href = '/Login';
+            return;
+        }
+
+        const j = await r.json();
+        S = S ? Object.assign(S, j) : j;
+        derive();
+        renderBell();
+
+        return S;
+    };
+    // Actualizar las alertas automáticamente cada 30 segundos.
+    let alertTimer = null;
+
+    const refreshAlerts = async () => {
+        if (!S || !user) return;
+
+        if (!can('Administrador', 'Supervisor', 'Farmaceutico','Vendedor')) {
+            return;
+        }
+
+        try {
+            const r = await cfg.fetch('/api/state', {
+                method: 'GET',
+                credentials: 'same-origin',
+                cache: 'no-store'
+            });
+
+            if (r.status === 401) {
+                location.href = '/Login';
+                return;
+            }
+
+            if (!r.ok) return;
+
+            const j = await r.json();
+
+            S = Object.assign(S, j);
+
+            derive();
+
+            renderBell();
+
+        } catch (error) {
+            console.error('Error actualizando alertas:', error);
+        }
+    };
 
     /* ---- Mensajes ---- */
     const toast = (icon, title) => Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3800, timerProgressBar: true }).fire({ icon, title });
@@ -92,7 +144,7 @@ const PS = (() => {
 
     /* ---- Campana de alertas ---- */
     const renderBell = () => {
-        const el = document.getElementById('bell'); if (!el || !S || !can('Administrador', 'Supervisor', 'Cajero/Farmaceutico')) return;
+        const el = document.getElementById('bell'); if (!el || !S || !can('Administrador', 'Supervisor', 'Farmaceutico', 'Vendedor')) return;
         const n = S.low.length + S.soon.length + S.expired.length;
         const it = (cls, i, t) => `<div class="it">${ico(i)}<div>${t}</div></div>`;
         const crit = S.low.map(m => it('', 'alert', `<b>${esc(m.n)}</b><br><span class="muted">Stock crítico: ${m.stock} / mín ${m.min}</span>`)).join('');
@@ -118,10 +170,30 @@ const PS = (() => {
         if (ub) ub.innerHTML = `<b>${esc(user.name)}</b><br><span class="role-chip">${ico('shield')} ${user.role}</span>`;
         const bb = document.getElementById('burger'); if (bb) bb.onclick = () => document.getElementById('sidebar').classList.toggle('open');
         document.addEventListener('click', () => document.getElementById('bellDrop')?.classList.remove('open'));
-        if (!can('Administrador', 'Supervisor', 'Cajero/Farmaceutico')) document.getElementById('bell')?.classList.add('hide');
+        if (!can('Administrador', 'Supervisor', 'Farmaceutico','Vendedor')) document.getElementById('bell')?.classList.add('hide');
     };
 
-    const setUser = (u, p) => { user = u; page = p; buildShell(); };
+    const setUser = (u, p) => {
+        user = u;
+        page = p;
+
+        buildShell();
+
+        // Evitar crear varios temporizadores.
+        if (alertTimer) {
+            clearInterval(alertTimer);
+            alertTimer = null;
+        }
+
+        // Actualizar alertas cada 30 segundos.
+        if (can('Administrador', 'Supervisor', 'Farmaceutico', 'Vendedor')) {
+
+            alertTimer = setInterval(() => {
+                refreshAlerts();
+            }, 30000);
+
+        }
+    };
     const boot = async fn => { await load(); await fn(S); };
     const reload = async () => { await load(); return S; };
 

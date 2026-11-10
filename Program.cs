@@ -355,7 +355,7 @@ app.MapGet("/api/state", async (Db d, HttpContext h) =>
     };
 }).RequireAuthorization();
 
-// ---------- MEDICAMENTOS (RF-02, RN-04: solo Administrador) ----------
+// ---------- MEDICAMENTOS ----------
 app.MapPost("/api/meds", async (MedReq r, Db d) =>
 {
     var code = (r.code ?? "").Trim();
@@ -371,7 +371,7 @@ app.MapPost("/api/meds", async (MedReq r, Db d) =>
     d.Medicamentos.Add(new Medicamento { CodigoBarras = code, NombreComercial = r.n.Trim(), IdCategoria = c.IdCategoria, PrecioVenta = r.price, StockMinimo = r.min });
     await d.SaveChangesAsync();
     return Results.Ok(new { ok = true, code });
-}).RequireAuthorization(Roles(A));
+}).RequireAuthorization(Roles(A,S));
 
 app.MapPost("/api/meds/{id}/toggle", async (int id, Db d) =>
 {
